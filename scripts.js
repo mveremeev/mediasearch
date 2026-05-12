@@ -1563,9 +1563,26 @@ function showActor(personId) {
     fetch(`${TMDB}/person/${personId}/movie_credits?api_key=${API_KEY}`).then(r=>r.json()),
     fetch(`${TMDB}/person/${personId}/tv_credits?api_key=${API_KEY}`).then(r=>r.json()),
   ]).then(([p, mc, tc]) => {
-    const movies = (mc.cast || []).slice(0, 18).map(c => ({ title:c.title, role:c.character, year:yearOf(c.release_date) }));
-    const tvs    = (tc.cast || []).slice(0, 18).map(c => ({ title:c.name, role:c.character, year:yearOf(c.first_air_date) }));
-    const filmItem = (f) => `<li><a href="#" class="film-link" data-title="${escapeAttr(f.title)}">${escapeHtml(f.title)}${f.year !== '-' ? ` (${f.year})` : ''}</a>${f.role ? `<span class="role">${escapeHtml(f.role)}</span>` : ''}</li>`;
+    const movies = (mc.cast || []).slice(0, 18);
+    const tvs    = (tc.cast || []).slice(0, 18);
+    const creditCard = (c, mt, idx = 0) => {
+      const title = (mt === 'movie' ? c.title : c.name) || '';
+      const date  = mt === 'movie' ? (c.release_date || '') : (c.first_air_date || '');
+      const year  = yearOf(date);
+      const posterPath = c.poster_path || '';
+      return `
+        <article class="credit-card" data-id="${c.id}" data-type="${mt}"
+          data-title="${escapeAttr(title)}" data-date="${escapeAttr(date)}" data-poster="${escapeAttr(posterPath)}"
+          tabindex="0" role="button" style="--i:${Math.min(idx, 24)}">
+          <div class="credit-poster">
+            <img src="${posterUrl(posterPath, 'w342')}" alt="${escapeAttr(title)}" loading="lazy">
+          </div>
+          <div class="credit-info">
+            <div class="credit-title" title="${escapeAttr(title)}">${escapeHtml(title)}</div>
+            ${year !== '-' ? `<div class="credit-year">${escapeHtml(year)}</div>` : ''}
+          </div>
+        </article>`;
+    };
     els.actorContent.innerHTML = `
       <div class="actor-header">
         <div class="actor-photo-lg"><img src="${profileUrl(p.profile_path)}" alt="${escapeAttr(p.name||'')}"></div>
@@ -1574,20 +1591,10 @@ function showActor(personId) {
           ${p.known_for_department ? `<div class="actor-known-for">Known for ${escapeHtml(p.known_for_department)}</div>` : ''}
         </div>
       </div>
-      ${movies.length ? `<div class="actor-section"><h4>Movies</h4><ul class="film-list">${movies.map(filmItem).join('')}</ul></div>` : ''}
-      ${tvs.length ? `<div class="actor-section"><h4>TV</h4><ul class="film-list">${tvs.map(filmItem).join('')}</ul></div>` : ''}
+      ${movies.length ? `<div class="actor-section"><h4>Movies</h4><div class="credit-grid">${movies.map((c,i)=>creditCard(c,'movie',i)).join('')}</div></div>` : ''}
+      ${tvs.length ? `<div class="actor-section"><h4>TV</h4><div class="credit-grid">${tvs.map((c,i)=>creditCard(c,'tv',i)).join('')}</div></div>` : ''}
     `;
     attachImageLoaders(els.actorContent);
-    qsa('.film-link', els.actorContent).forEach(a => a.addEventListener('click', (e) => {
-      e.preventDefault();
-      const title = a.dataset.title;
-      hideOverlay(els.actorOverlay);
-      hideOverlay(els.detailOverlay);
-      els.searchInput.value = title;
-      els.clearBtn.classList.add('visible');
-      runQueryChange(title);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }));
   }).catch(() => {
     els.actorContent.innerHTML = '<p style="color:var(--text-low);font-size:13px;padding:14px 0;">Could not load person.</p>';
   });
@@ -1898,6 +1905,36 @@ function init() {
       hideOverlay(els.castGridOverlay);
       showActor(Number(p.dataset.id));
     }
+  });
+
+  // Actor overlay: credit clicks → detail overlay (no modal stacking)
+  const openCredit = (card) => {
+    const id = Number(card.dataset.id);
+    const mt = card.dataset.type;
+    if (!id || (mt !== 'movie' && mt !== 'tv')) return;
+    const title = card.dataset.title || '';
+    const date  = card.dataset.date || '';
+    const posterPath = card.dataset.poster || '';
+    state.detailOverrides[`${mt}:${id}`] = {
+      id,
+      media_type: mt,
+      title,
+      name: title,
+      poster_path: posterPath,
+      release_date: mt === 'movie' ? date : '',
+      first_air_date: mt === 'tv' ? date : '',
+    };
+    hideOverlay(els.actorOverlay);
+    showDetail(id, mt);
+  };
+  els.actorContent.addEventListener('click', (e) => {
+    const card = e.target.closest('.credit-card');
+    if (card) openCredit(card);
+  });
+  els.actorContent.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const card = e.target.closest('.credit-card');
+    if (card) { e.preventDefault(); openCredit(card); }
   });
 
   // Overlay close handlers
