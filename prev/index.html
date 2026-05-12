@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSearch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="search.css">
+    <style>
+      /* --- Switch-to-new-interface button (injected, not part of the original CSS) --- */
+      .switch-to-new {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        background: linear-gradient(135deg, #dc2626, #ef4444);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: -0.005em;
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(220, 38, 38, 0.42);
+        transition: transform .18s ease, box-shadow .18s ease;
+        margin-right: auto;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      .switch-to-new:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 20px rgba(220, 38, 38, 0.55);
+      }
+      .switch-to-new:active { transform: translateY(0); }
+      .switch-to-new svg { transition: transform .18s ease; }
+      .switch-to-new:hover svg { transform: translateX(3px); }
+      @media (max-width: 480px) {
+        .switch-to-new { padding: 7px 12px; font-size: 12px; }
+        .switch-to-new span { display: none; } /* keep the icon, drop the label on tiny screens */
+      }
+    </style>
+  </head>
+
+  <body>
+
+    <header class="top-bar">
+      <button id="switch-to-new-btn" type="button" class="switch-to-new" title="Switch to the new modern interface">
+        <span>Switch to new interface</span>
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 12h14M13 5l7 7-7 7"></path>
+        </svg>
+      </button>
+      <a href="legal.html" class="legal-link">Legal and credits</a>
+      <button id="theme-toggle" class="theme-toggle">Light mode</button>
+    </header>
+
+    <div class="centre">
+      <div class="search-bar">
+        <input type="search" class="search" placeholder="Search for a movie or series...">
+        <button type="button" class="clear-search" title="Clear search">×</button>
+        <button type="button" class="send">
+          <img src="search.svg">
+        </button>
+      </div>
+
+      <div class="discovery">
+        <div class="discovery-title">
+          <span class="discovery-disclaimer"><span class="orange">*</span> Not available in search</span>
+          <span class="discovery-title-text">Options</span>
+        </div>
+        <div class="filter-bar">
+          <button type="button" class="scroll-arrow scroll-left" id="scroll-left" aria-label="Scroll left"><span class="arrow-char" aria-hidden="true"><span class="arrow-glyph">‹</span></span></button>
+          <div class="filter-scroll" id="filter-scroll">
+            <details class="filter-chip">
+              <summary>Type</summary>
+              <div class="filter-dropdown">
+                <label><input type="radio" name="media-type" value="all" checked> Both</label>
+                <label><input type="radio" name="media-type" value="movie"> Movies</label>
+                <label><input type="radio" name="media-type" value="tv"> Shows</label>
+              </div>
+            </details>
+            <details class="filter-chip">
+              <summary><span class="orange">*</span>Services</summary>
+              <div class="filter-dropdown" id="service-options">
+                <label><input type="radio" name="service-all" id="service-all" checked> All</label>
+              </div>
+            </details>
+            <details class="filter-chip">
+              <summary>Year</summary>
+              <div class="filter-dropdown filter-dropdown-wide">
+                <div class="range-control">
+                  <label>From</label>
+                  <input type="range" id="year-min" min="0" max="100" value="0">
+                  <span id="year-min-val">All</span>
+                </div>
+                <div class="range-control">
+                  <label>To</label>
+                  <input type="range" id="year-max" min="0" max="100" value="100">
+                  <span id="year-max-val"></span>
+                </div>
+                <button type="button" class="range-reset" id="year-reset">Reset</button>
+              </div>
+            </details>
+            <details class="filter-chip">
+              <summary><span class="orange">*</span>Rating</summary>
+              <div class="filter-dropdown filter-dropdown-wide">
+                <div class="range-control">
+                  <label>Min</label>
+                  <input type="range" id="rating-min" min="0" max="10" step="0.5" value="0">
+                  <span id="rating-min-val">0</span>
+                </div>
+                <div class="range-control">
+                  <label>Max</label>
+                  <input type="range" id="rating-max" min="0" max="10" step="0.5" value="10">
+                  <span id="rating-max-val">10</span>
+                </div>
+                <button type="button" class="range-reset" id="rating-reset">Reset</button>
+              </div>
+            </details>
+            <details class="filter-chip">
+              <summary><span class="orange">*</span>Sort</summary>
+              <div class="filter-dropdown">
+                <label><input type="radio" name="sort-by" value="popularity.desc" checked> Popularity</label>
+                <label><input type="radio" name="sort-by" value="vote_average.desc"> Top Rated</label>
+                <label><input type="radio" name="sort-by" value="primary_release_date.desc"> Newest</label>
+                <label><input type="radio" name="sort-by" value="primary_release_date.asc"> Oldest</label>
+                <label><input type="radio" name="sort-by" value="revenue.desc"> Revenue</label>
+                <button type="button" class="range-reset" id="sort-reset">Reset</button>
+              </div>
+            </details>
+            <div class="filter-chip filter-toggle">
+              <input type="checkbox" id="locationOnly" name="locationOnly">
+              <label for="locationOnly"><span class="orange">*</span>My location</label>
+            </div>
+            <div class="filter-chip filter-toggle">
+              <input type="checkbox" id="adultOnly" name="adultOnly">
+              <label for="adultOnly">NSFW</label>
+            </div>
+          </div>
+          
+          <button type="button" class="scroll-arrow scroll-right" id="scroll-right" aria-label="Scroll right"><span class="arrow-char" aria-hidden="true"><span class="arrow-glyph">›</span></span></button>
+        </div>
+        
+        <div id="selected-pills" class="selected-pills"></div>
+      </div>
+
+      <div id="results" class="results"></div>
+      <button id="load-more" class="load-more">Load more</button>
+    </div>
+
+    <div id="more-info-overlay" class="overlay more-info-overlay" aria-hidden="true">
+      <div class="more-info-card">
+        <button type="button" class="close-btn more-info-close" aria-label="Close">×</button>
+        <div id="more-info-content" class="more-info-content"></div>
+      </div>
+    </div>
+
+    <div id="actors-more-overlay" class="overlay actors-more-overlay" aria-hidden="true">
+      <div class="actors-more-card">
+        <button type="button" class="close-btn actors-more-close" aria-label="Close">×</button>
+        <div id="actors-more-content" class="actors-more-content"></div>
+      </div>
+    </div>
+
+    <div id="actor-overlay" class="overlay actor-overlay" aria-hidden="true">
+      <div class="actor-card-overlay">
+        <button type="button" class="close-btn actor-overlay-close" aria-label="Close">×</button>
+        <div id="actor-overlay-content" class="actor-overlay-content"></div>
+      </div>
+    </div>
+
+    <div id="overlay" class="overlay">
+      <div class="detail-card">
+        <button id="detail-close" type="button" class="close-btn" aria-label="Close">×</button>
+        <div class="detail-poster-wrap" id="detail-poster-wrap">
+          <span class="spinner" aria-hidden="true"></span>
+          <img id="detail-poster" src="" alt="">
+        </div>
+        <div class="detail-info">
+          <div class="detail-title-row">
+            <h2 id="detail-title"></h2>
+            <div id="detail-rating" class="detail-rating"></div>
+          </div>
+          <p id="detail-meta"></p>
+          <div id="detail-trailer"></div>
+          <p id="detail-overview"></p>
+          <div id="detail-cast" class="detail-cast"></div>
+          <div id="region-selector-container" class="region-selector-container"></div>
+          <div id="detail-providers" class="detail-providers"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="search.js"></script>
+
+    <script>
+      /* Switch-to-new-interface handler. Stored under the same localStorage key the
+         new build uses ('msearch-interface-pref'); writing 'new' here means the new
+         interface stops auto-redirecting back here and won't show the welcome popup. */
+      (function () {
+        var btn = document.getElementById('switch-to-new-btn');
+        if (!btn) return;
+        btn.addEventListener('click', function () {
+          try { localStorage.setItem('msearch-interface-pref', 'new'); } catch (e) {}
+          window.location.replace('../index.html');
+        });
+      })();
+    </script>
+
+    <!-- Vercel Analytics -->
+    <script defer src="/_vercel/insights/script.js"></script>
+  </body>
+</html>

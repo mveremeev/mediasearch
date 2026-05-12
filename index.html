@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en"> 
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stash</title>
+  <meta name="description" content="A fast, easy to use, TMDB-backed discovery tool. Find what's worth your time.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800;900&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ============ HEADER ============ -->
+  <header class="site-header" id="site-header">
+    <div class="header-inner">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="M21 21l-4.3-4.3"></path>
+          </svg>
+        </span>
+        <span class="brand-text">Stash</span>
+      </a>
+
+      <nav class="header-nav">
+        <a href="legal.html" class="header-link">Legal &amp; credits</a>
+        <button id="autoload-toggle" class="icon-btn" aria-label="Toggle auto-load" title="Auto-load on scroll">
+          <svg class="icon-autoload-on" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.739-8z"></path>
+          </svg>
+          <svg class="icon-autoload-off" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M8 12l4 4 4-4M12 8v8"></path>
+          </svg>
+        </button>
+        <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" title="Toggle theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+          </svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="hero-inner">
+      <h1 class="hero-title">Stash</h1>
+
+      <form class="search-bar" role="search" id="search-form" autocomplete="off">
+        <span class="search-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path d="M21 21l-4.3-4.3"></path>
+          </svg>
+        </span>
+        <input
+          type="search"
+          id="search-input"
+          class="search-input"
+          placeholder="Search a title, person, or franchise…"
+          aria-label="Search">
+        <button type="button" id="clear-btn" class="clear-btn" aria-label="Clear search">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6L6 18M6 6l12 12"></path>
+          </svg>
+        </button>
+        <button type="button" id="collection-btn" class="collection-btn" aria-label="My collection" title="My collection">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span class="count-badge" id="collection-count" hidden>0</span>
+        </button>
+        <button type="submit" class="search-submit" aria-label="Run search">
+          <span>Search</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14M13 5l7 7-7 7"></path>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ FILTERS ============ -->
+  <section class="filters" id="filters" aria-label="Filters">
+    <p class="filters-disclaimer" role="note">
+      <span class="hint-star" aria-hidden="true">*</span>
+      <span>Not available in search</span>
+    </p>
+    <div class="filters-inner">
+      <button class="scroll-arrow scroll-arrow-l" id="scroll-l" aria-label="Scroll filters left" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
+
+      <div class="chip-rail" id="chip-rail">
+
+        <!-- Type -->
+        <details class="chip" data-chip="type">
+          <summary>
+            <span class="chip-label">Type</span>
+            <span class="chip-value" data-value-for="type">All</span>
+            <svg class="chip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+          </summary>
+          <div class="chip-panel">
+            <label class="opt"><input type="radio" name="media-type" value="all" checked> <span>All</span></label>
+            <label class="opt"><input type="radio" name="media-type" value="movie"> <span>Movies</span></label>
+            <label class="opt"><input type="radio" name="media-type" value="tv"> <span>Shows</span></label>
+            <label class="opt"><input type="radio" name="media-type" value="anime"> <span>Anime <em class="opt-tag">JP · Animation</em></span></label>
+          </div>
+        </details>
+
+        <!-- Services (discover-only) -->
+        <details class="chip" data-chip="services" data-discover-only>
+          <summary>
+            <span class="chip-label"><i class="hint-star" title="Discovery only">*</i>Services</span>
+            <span class="chip-value" data-value-for="services">All</span>
+            <svg class="chip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+          </summary>
+          <div class="chip-panel chip-panel-grid" id="services-panel">
+            <label class="opt opt-all"><input type="radio" name="service-all" id="service-all" checked> <span>All</span></label>
+            <!-- service checkboxes injected by JS -->
+          </div>
+        </details>
+
+        <!-- Year -->
+        <details class="chip" data-chip="year">
+          <summary>
+            <span class="chip-label">Year</span>
+            <span class="chip-value" data-value-for="year">Any</span>
+            <svg class="chip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+          </summary>
+          <div class="chip-panel chip-panel-wide">
+            <div class="range-row">
+              <label>From</label>
+              <input type="range" id="year-min" min="0" max="100" value="0">
+              <output id="year-min-val">All</output>
+            </div>
+            <div class="range-row">
+              <label>To</label>
+              <input type="range" id="year-max" min="0" max="100" value="100">
+              <output id="year-max-val">Now</output>
+            </div>
+            <button type="button" class="reset-btn" id="year-reset">Reset</button>
+          </div>
+        </details>
+
+        <!-- Language (discover-only) -->
+        <details class="chip" data-chip="language" data-discover-only>
+          <summary>
+            <span class="chip-label"><i class="hint-star" title="Discovery only">*</i>Language</span>
+            <span class="chip-value" data-value-for="language">Any</span>
+            <svg class="chip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+          </summary>
+          <div class="chip-panel chip-panel-grid" id="language-panel">
+            <label class="opt opt-all"><input type="radio" name="lang" value="" checked> <span>Any</span></label>
+            <!-- language radios injected by JS -->
+          </div>
+        </details>
+
+        <!-- Rating (discover-only) -->
+        <details class="chip" data-chip="rating" data-discover-only>
+          <summary>
+            <span class="chip-label"><i class="hint-star" title="Discovery only">*</i>Rating</span>
+            <span class="chip-value" data-value-for="rating">0–10</span>
+            <svg class="chip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+          </summary>
+          <div class="chip-panel chip-panel-wide">
+            <div class="range-row">
+              <label>Min</label>
+              <input type="range" id="rating-min" min="0" max="10" step="0.5" value="0">
+              <output id="rating-min-val">0</output>
+            </div>
+            <div class="range-row">
+              <label>Max</label>
+              <input type="range" id="rating-max" min="0" max="10" step="0.5" value="10">
+              <output id="rating-max-val">10</output>
+            </div>
+            <button type="button" class="reset-btn" id="rating-reset">Reset</button>
+          </div>
+        </details>
+
+        <!-- Sort (discover-only) -->
+        <details class="chip" data-chip="sort" data-discover-only>
+          <summary>
+            <span class="chip-label"><i class="hint-star" title="Discovery only">*</i>Sort</span>
+            <span class="chip-value" data-value-for="sort">Popularity</span>
+            <svg class="chip-chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+          </summary>
+          <div class="chip-panel">
+            <label class="opt"><input type="radio" name="sort-by" value="popularity.desc" checked> <span>Popularity</span></label>
+            <label class="opt"><input type="radio" name="sort-by" value="vote_average.desc"> <span>Top Rated</span></label>
+            <label class="opt"><input type="radio" name="sort-by" value="primary_release_date.desc"> <span>Newest</span></label>
+            <label class="opt"><input type="radio" name="sort-by" value="primary_release_date.asc"> <span>Oldest</span></label>
+            <label class="opt"><input type="radio" name="sort-by" value="revenue.desc"> <span>Revenue</span></label>
+          </div>
+        </details>
+
+        <!-- My location (discover-only, toggle-style chip) -->
+        <label class="chip chip-toggle" data-discover-only>
+          <input type="checkbox" id="location-only">
+          <span class="chip-label"><i class="hint-star" title="Discovery only">*</i>My location</span>
+          <span class="chip-value" id="region-display">--</span>
+        </label>
+
+        <!-- NSFW toggle -->
+        <label class="chip chip-toggle">
+          <input type="checkbox" id="adult-only">
+          <span class="chip-label">NSFW</span>
+        </label>
+      </div>
+
+      <button class="scroll-arrow scroll-arrow-r" id="scroll-r" aria-label="Scroll filters right" type="button">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"></path></svg>
+      </button>
+    </div>
+
+    <!-- Selected pills strip -->
+    <div class="pills" id="pills"></div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <main class="results" id="results-main">
+    <header class="section-head">
+      <h2 class="section-title" id="section-title">Discover</h2>
+      <span class="section-meta" id="section-meta"></span>
+    </header>
+
+    <!-- People (only when search returns persons) -->
+    <section class="people-strip" id="people-strip" hidden>
+      <h3 class="sub-title">People</h3>
+      <div class="people-grid" id="people-grid"></div>
+      <button type="button" class="see-more-btn" id="see-more-people" hidden>See all people</button>
+    </section>
+
+    <!-- Media grid -->
+    <section class="grid-section">
+      <h3 class="sub-title sub-title-hidden" id="grid-sub-title" hidden>Movies &amp; Shows</h3>
+      <div class="grid" id="grid"></div>
+      <div class="grid-status" id="grid-status"></div>
+      <button type="button" id="load-more" class="load-more-btn" hidden>Load more</button>
+      <div class="sentinel" id="sentinel" aria-hidden="true"></div>
+    </section>
+  </main>
+
+  <!-- ============ FOOTER ============ -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+      <p class="footer-credits">
+        <a href="legal.html">Legal &amp; credits</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- ============ DETAIL OVERLAY ============ -->
+  <div class="overlay" id="detail-overlay" aria-hidden="true">
+    <div class="overlay-card detail-card" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <button class="overlay-close" id="detail-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      </button>
+
+      <div class="detail-backdrop" id="detail-backdrop">
+        <div class="backdrop-img-wrap" id="detail-backdrop-wrap">
+          <img id="detail-backdrop-img" alt="" loading="lazy">
+        </div>
+        <div class="backdrop-vignette" aria-hidden="true"></div>
+        <div class="backdrop-scrim" aria-hidden="true"></div>
+        <div class="backdrop-glow" aria-hidden="true"></div>
+      </div>
+
+      <div class="detail-body">
+        <div class="detail-poster-col">
+          <div class="poster-wrap" id="detail-poster-wrap">
+            <img id="detail-poster" alt="" loading="lazy">
+          </div>
+        </div>
+
+        <div class="detail-info-col">
+          <h2 class="detail-title" id="detail-title"></h2>
+          <div class="detail-meta-row" id="detail-meta"></div>
+          <div class="detail-langs" id="detail-langs" hidden></div>
+          <p class="detail-overview" id="detail-overview"></p>
+
+          <div class="detail-actions" id="detail-actions"></div>
+          <div class="collection-actions" id="detail-collection-actions" role="group" aria-label="Add to collection"></div>
+
+          <div class="detail-section">
+            <h3 class="trail-heading">Cast</h3>
+            <div class="cast-rail" id="detail-cast"></div>
+            <button type="button" class="see-more-btn" id="see-more-cast" hidden>See full cast</button>
+          </div>
+
+          <div class="detail-section">
+            <h3 class="trail-heading">Streaming</h3>
+            <div class="region-row" id="region-row"></div>
+            <div class="providers" id="detail-providers"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ACTOR OVERLAY ============ -->
+  <div class="overlay" id="actor-overlay" aria-hidden="true">
+    <div class="overlay-card actor-card-overlay" role="dialog" aria-modal="true">
+      <button class="overlay-close" id="actor-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      </button>
+      <div class="actor-content" id="actor-content"></div>
+    </div>
+  </div>
+
+  <!-- ============ CAST/PEOPLE GRID OVERLAY ============ -->
+  <div class="overlay" id="cast-grid-overlay" aria-hidden="true">
+    <div class="overlay-card cast-grid-card" role="dialog" aria-modal="true">
+      <button class="overlay-close" id="cast-grid-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      </button>
+      <div id="cast-grid-content"></div>
+    </div>
+  </div>
+
+  <!-- ============ MY COLLECTION OVERLAY ============ -->
+  <div class="overlay" id="collection-overlay" aria-hidden="true">
+    <div class="overlay-card collection-card" role="dialog" aria-modal="true" aria-labelledby="collection-title">
+      <button class="overlay-close" id="collection-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      </button>
+      <div class="collection-head">
+        <h2 class="collection-title" id="collection-title">My Collection</h2>
+        <div class="collection-io">
+          <button type="button" class="io-btn" id="collection-import">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"></path></svg>
+            <span>Import</span>
+          </button>
+          <button type="button" class="io-btn" id="collection-export">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
+            <span>Export</span>
+          </button>
+          <input type="file" id="collection-import-input" accept="application/json,.json" hidden>
+        </div>
+      </div>
+      <div class="collection-tabs" id="collection-tabs" role="tablist"></div>
+      <p class="collection-status" id="collection-status" hidden></p>
+      <div class="collection-body" id="collection-body"></div>
+    </div>
+  </div>
+
+  <!-- ============ MORE-INFO OVERLAY (regions + VPN list) ============ -->
+  <div class="overlay" id="info-overlay" aria-hidden="true">
+    <div class="overlay-card info-card" role="dialog" aria-modal="true">
+      <button class="overlay-close" id="info-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      </button>
+      <div id="info-content"></div>
+    </div>
+  </div>
+
+
+  <script src="scripts.js"></script>
+</body>
+</html>
