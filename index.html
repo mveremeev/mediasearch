@@ -6,11 +6,45 @@
   <title>Stash</title>
   <meta name="description" content="A fast, easy to use, TMDB-backed discovery tool. Find what's worth your time.">
 
+  <!-- Origins we hit on the critical path. preconnect = DNS + TCP + TLS
+       handshake done early so the first byte arrives sooner. Both font
+       origins are required because Google Fonts serves CSS from
+       fonts.googleapis.com and the actual woff2 files from fonts.gstatic.com.
+       gstatic needs crossorigin because woff2 are CORS-fetched. -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800;900&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
+  <link rel="preconnect" href="https://api.themoviedb.org" crossorigin>
+
+  <!-- LowData.svg is the placeholder shown for every poster in low-data
+       mode. prefetch keeps it idle-priority for users who never toggle low
+       data; the moment CSS resolves the background-image url() the cached
+       copy is reused. -->
+  <link rel="prefetch" href="LowData.svg">
+
+  <!-- Google Fonts. Dropped Unbounded weight 500 (unused — display font
+       only uses 700/800/900). fetchpriority="high" on the CSS so it isn't
+       deprioritised behind the local stylesheet on slow networks. We do
+       NOT preload specific woff2 files: Google Fonts serves the woff2 URLs
+       from gstatic with rotating hashes, so a hardcoded preload would
+       silently 404 the moment Google bumps a version. The preconnect above
+       already trims most of the latency. -->
+  <link rel="stylesheet" fetchpriority="high"
+        href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800;900&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap">
 
   <link rel="stylesheet" href="styles.css">
+
+  <!-- Critical CLS reservations: prevents the 0.89 cumulative layout shift Lighthouse flagged.
+       Keep this tiny — it ships on every request and is duplicated in styles.css for non-critical paths. -->
+  <style>
+    html { scrollbar-gutter: stable; }
+    body { background:#08090c; color:#d4d4d8; }
+    :root[data-theme="light"] body { background:#f7f6f3; color:#2a2b30; }
+    .site-header { min-height: 68px; }
+    .hero { min-height: 240px; }
+    .filters { min-height: 92px; }
+    main.results { min-height: 70vh; }
+  </style>
 </head>
 <body>
 
@@ -29,7 +63,18 @@
 
       <nav class="header-nav">
         <a href="legal.html" class="header-link">Legal &amp; credits</a>
-        <button id="autoload-toggle" class="icon-btn" aria-label="Toggle auto-load" title="Auto-load on scroll">
+        <button id="lowdata-toggle" class="icon-btn" aria-label="Toggle low-data mode" aria-pressed="false" title="Low-data mode (skip all images)" type="button">
+          <svg class="icon-low-data" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 20h.01"/>
+            <path d="M8.5 16.429a5 5 0 0 1 7 0"/>
+            <path d="M5 12.859a10 10 0 0 1 5.17-2.69"/>
+            <path d="M19 12.859a10 10 0 0 0-2.007-1.523"/>
+            <path d="M2 8.82a15 15 0 0 1 4.177-2.643"/>
+            <path d="M22 8.82a15 15 0 0 0-11.288-3.764"/>
+            <path d="m2 2 20 20"/>
+          </svg>
+        </button>
+        <button id="autoload-toggle" class="icon-btn" aria-label="Toggle auto-load" title="Auto-load on scroll" type="button">
           <svg class="icon-autoload-on" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.739-8-4.585 0-4.585 8 0 8 5.606 0 7.644-8 12.739-8z"></path>
           </svg>
@@ -38,7 +83,7 @@
             <path d="M8 12l4 4 4-4M12 8v8"></path>
           </svg>
         </button>
-        <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" title="Toggle theme">
+        <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme" title="Toggle theme" type="button">
           <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="4"></circle>
             <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
@@ -54,7 +99,7 @@
   <!-- ============ HERO ============ -->
   <section class="hero">
     <div class="hero-inner">
-      <h1 class="hero-title">Stash</h1>
+      <!-- <h1 class="hero-title">Stash</h1> -->
 
       <form class="search-bar" role="search" id="search-form" autocomplete="off">
         <span class="search-icon" aria-hidden="true">
@@ -272,7 +317,7 @@
 
       <div class="detail-backdrop" id="detail-backdrop">
         <div class="backdrop-img-wrap" id="detail-backdrop-wrap">
-          <img id="detail-backdrop-img" alt="" loading="lazy">
+          <img id="detail-backdrop-img" alt="" loading="lazy" width="1280" height="720" decoding="async">
         </div>
         <div class="backdrop-vignette" aria-hidden="true"></div>
         <div class="backdrop-scrim" aria-hidden="true"></div>
@@ -282,7 +327,7 @@
       <div class="detail-body">
         <div class="detail-poster-col">
           <div class="poster-wrap" id="detail-poster-wrap">
-            <img id="detail-poster" alt="" loading="lazy">
+            <img id="detail-poster" alt="" loading="lazy" width="500" height="750" decoding="async">
           </div>
         </div>
 
@@ -368,6 +413,6 @@
   </div>
 
 
-  <script src="scripts.js"></script>
+  <script src="scripts.js" defer></script>
 </body>
 </html>

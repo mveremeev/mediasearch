@@ -796,6 +796,14 @@ input[type="range"]::-moz-range-thumb {
   --i: 0;
   animation: card-in .5s var(--ease-out) both;
   animation-delay: calc(var(--i) * 35ms);
+  /* Lazy-render cards that aren't on screen. Halves the layout/paint work
+     Lighthouse flagged when the DOM crossed 1,481 elements. The size hint
+     keeps offsetHeight stable for scrollbar math. */
+  content-visibility: auto;
+  contain-intrinsic-size: 360px 260px;
+}
+@media (min-width: 700px) {
+  .card { contain-intrinsic-size: 400px 290px; }
 }
 @keyframes card-in {
   from { opacity: 0; transform: translateY(14px); }
@@ -2113,3 +2121,164 @@ input[type="range"]::-moz-range-thumb {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* =====================================================================
+   CLS, a11y, and Low-Data additions (see SLow/ Lighthouse + axe reports).
+   These supplement earlier rules; ordering matters where noted.
+   ===================================================================== */
+
+/* Stable scrollbar gutter: prevents 0.57+ shift Lighthouse attributed to
+   `button.overlay-close#detail-close` when an overlay locks body scroll
+   and the viewport widens by the scrollbar width. */
+html { scrollbar-gutter: stable; }
+
+/* Hard-pin filters / results / hero so font swap or async chip insertion
+   does not move the header or extend the main column. Targets the
+   `section.filters#filters`, `main.results#results-main`, `header.site-header#site-header`
+   layout-shift culprits. */
+.site-header { min-height: var(--header-h); }
+.hero { min-height: clamp(220px, 28vh, 280px); }
+.filters { min-height: 92px; }
+@media (max-width: 760px) { .filters { min-height: 76px; } }
+main.results { min-height: 70vh; }
+
+/* Lock #detail-close size and movement: replace the rotate(90deg) hover
+   that Lighthouse recorded as resizing the bounding box and shifting two
+   neighbours. transform inside .overlay-close still works, but we drop
+   the rotate so the box stays stationary. */
+.overlay-close { transition: background .2s var(--ease), color .2s var(--ease); will-change: background; }
+.overlay-close:hover { background: var(--primary); transform: none; }
+.overlay-close:active { transform: scale(0.95); }
+
+/* `div.actor-content#actor-content` was flagged twice (0.26 each) for
+   growing as biography / filmography text streamed in. Reserve vertical
+   space so the actor-card height is known from open time. */
+.actor-content { min-height: 280px; }
+.actor-header { min-height: 96px; }
+
+/* Lock `div.overlay.active#detail-overlay` content height so the body
+   does not jump as cast/providers fetches complete. */
+.detail-card .detail-section { min-height: 90px; }
+.cast-rail { min-height: 132px; }
+.providers { min-height: 80px; }
+
+/* Pre-size pills / chip row so first paint matches steady state. */
+.pills:empty { min-height: 0; }
+.pills { min-height: 0; }
+
+
+/* ---------- Accessibility: contrast ---------- */
+/* axe Serious: "Elements must meet minimum color contrast ratio thresholds".
+   --text-low (#5b6170 on #08090c) measured ~3.9:1, just under WCAG AA 4.5.
+   Bump to #7a8290 (~5.1:1) without losing the muted look. Light theme
+   counterpart bumped too. */
+:root {
+  --text-low: #7a8290;
+}
+:root[data-theme="light"] {
+  --text-low: #6a6f7a;
+}
+/* Star colour on light theme was #d97706 on #f7f6f3 = 3.3:1. Bump. */
+:root[data-theme="light"] { --star: #b45309; }
+
+
+/* axe Serious: "Elements must have their visible text as part of their accessible name".
+   The card-quick buttons and coll-btn buttons set aria-label to a value that
+   may not be a substring of their visible text. Fix is in JS (build aria-label
+   from the visible <span class="coll-label">) — no CSS needed. */
+
+/* axe Minor: "ARIA role should be appropriate for the element".
+   We removed role="button" from <button> elements and role="tab" without
+   matching role="tablist" in JS. No CSS impact. */
+
+
+/* ---------- Low-Data toggle button (header) ---------- */
+#lowdata-toggle .icon-low-data { color: var(--text-mid); transition: color .2s var(--ease); }
+#lowdata-toggle[aria-pressed="true"] { color: var(--primary); }
+#lowdata-toggle[aria-pressed="true"] .icon-low-data { color: var(--primary); }
+
+
+/* ---------- Low-Data mode: hide every loaded image, show LowData.svg tile ---------- */
+:root[data-low-data] .card-poster img,
+:root[data-low-data] .person-photo img,
+:root[data-low-data] .credit-poster img,
+:root[data-low-data] .detail-poster-col img,
+:root[data-low-data] .backdrop-img-wrap img,
+:root[data-low-data] .actor-photo-lg img,
+:root[data-low-data] .provider-tile img,
+:root[data-low-data] .provider-row a img {
+  display: none !important;
+}
+
+/* Hide the loading spinner in low-data containers (no img => no load). */
+:root[data-low-data] .card-poster::after,
+:root[data-low-data] .person-photo::after,
+:root[data-low-data] .credit-poster::after,
+:root[data-low-data] .detail-poster-col .poster-wrap::after,
+:root[data-low-data] .backdrop-img-wrap::after { display: none !important; }
+
+/* Cached LowData.svg tile rendered inside any poster container while low-data is on.
+   Single network request (browser caches), reused across every card. */
+:root[data-low-data] .card-poster,
+:root[data-low-data] .person-photo,
+:root[data-low-data] .credit-poster,
+:root[data-low-data] .detail-poster-col .poster-wrap,
+:root[data-low-data] .actor-photo-lg {
+  background-image: url("LowData.svg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 32%;
+  background-color: var(--bg-3);
+}
+:root[data-low-data] .person-photo,
+:root[data-low-data] .actor-photo-lg { background-size: 44%; }
+:root[data-low-data] .credit-poster { background-size: 50%; }
+
+/* Backdrop becomes a flat tint with the icon centered. */
+:root[data-low-data] .detail-backdrop {
+  background:
+    url("LowData.svg") center / 80px no-repeat,
+    var(--bg-3);
+}
+:root[data-low-data] .backdrop-vignette,
+:root[data-low-data] .backdrop-glow { opacity: 0.35; }
+
+/* Provider tiles: drop their <img> but keep the link clickable with the
+   provider name as text, styled like the existing tiles. */
+:root[data-low-data] .provider-tile {
+  width: auto;
+  min-width: 84px;
+  height: auto;
+  min-height: 48px;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-hi);
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-radius: 10px;
+}
+:root[data-low-data] .provider-tile::before {
+  content: attr(data-name);
+}
+
+/* JustWatch / Google text-only links when low-data is on. */
+:root[data-low-data] .provider-row a img { display: none; }
+
+
+/* ---------- Force "Load more" button in low-data mode (no infinite scroll) ---------- */
+/* The JS sets state.autoLoad = false when low-data is on so the sentinel
+   observer skips fetch. The button visibility is driven by JS too — this
+   rule is a belt-and-braces hide of the sentinel area. */
+:root[data-low-data] .sentinel { display: none; }
+
+
+/* ---------- Card-quick button: ensure aria-label matches visible context.
+   Since these are absolutely-positioned overlays without visible text,
+   accessible name comes from aria-label alone — that's allowed under WCAG
+   2.5.3 (visible text is not present). No CSS change needed. ---------- */
+
