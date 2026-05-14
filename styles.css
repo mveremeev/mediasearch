@@ -83,10 +83,12 @@
 
 /* ---------- Reset + base ---------- */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-*::-webkit-scrollbar { width: 10px; height: 10px; }
-*::-webkit-scrollbar-track { background: transparent; }
-*::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 10px; }
-*::-webkit-scrollbar-thumb:hover { background: var(--text-low); }
+@media (hover: hover) {
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 10px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--text-low); }
+}
 
 html { scroll-behavior: smooth; }
 body {
@@ -120,14 +122,7 @@ a { color: inherit; text-decoration: none; }
   position: sticky; top: 0;
   z-index: 50;
   height: var(--header-h);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  background: linear-gradient(
-    to bottom,
-    color-mix(in oklab, var(--bg) 78%, transparent) 0%,
-    color-mix(in oklab, var(--bg) 60%, transparent) 70%,
-    transparent 100%
-  );
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
   transition: border-color .25s var(--ease);
 }
@@ -796,14 +791,19 @@ input[type="range"]::-moz-range-thumb {
   --i: 0;
   animation: card-in .5s var(--ease-out) both;
   animation-delay: calc(var(--i) * 35ms);
+  /* Grid items default to min-width:auto = intrinsic content size. Combined
+     with contain-intrinsic-size below, that forced every column to be ≥360px
+     wide on mobile, blowing past `repeat(2, 1fr)` and overflowing the
+     viewport. min-width:0 lets the column constrain the card to 1fr. */
+  min-width: 0;
   /* Lazy-render cards that aren't on screen. Halves the layout/paint work
      Lighthouse flagged when the DOM crossed 1,481 elements. The size hint
      keeps offsetHeight stable for scrollbar math. */
   content-visibility: auto;
-  contain-intrinsic-size: 360px 260px;
+  contain-intrinsic-size: auto 360px auto 260px;
 }
 @media (min-width: 700px) {
-  .card { contain-intrinsic-size: 400px 290px; }
+  .card { contain-intrinsic-size: auto 400px auto 290px; }
 }
 @keyframes card-in {
   from { opacity: 0; transform: translateY(14px); }
@@ -1195,6 +1195,7 @@ input[type="range"]::-moz-range-thumb {
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
+  overflow-x: hidden;
   box-shadow: var(--shadow-lg);
   animation: card-pop .35s var(--ease-out) both;
 }
@@ -2130,8 +2131,10 @@ input[type="range"]::-moz-range-thumb {
 
 /* Stable scrollbar gutter: prevents 0.57+ shift Lighthouse attributed to
    `button.overlay-close#detail-close` when an overlay locks body scroll
-   and the viewport widens by the scrollbar width. */
-html { scrollbar-gutter: stable; }
+   and the viewport widens by the scrollbar width. Desktop only — mobile
+   uses overlay scrollbars (no gutter needed) and the 10px reservation
+   was shrinking the viewport content area on Android Chrome. */
+@media (hover: hover) { html { scrollbar-gutter: stable; } }
 
 /* Hard-pin filters / results / hero so font swap or async chip insertion
    does not move the header or extend the main column. Targets the

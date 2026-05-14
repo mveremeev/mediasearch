@@ -1557,10 +1557,16 @@ function renderDetailActions(item, trailer) {
   return parts.join('');
 }
 
+// ISO 3166-1 → JustWatch url_part. Only exceptions listed; all others are just toLowerCase().
+const JW_LOCALE_MAP = { GB: 'uk' };
+// Full set of JustWatch-supported url_parts (from /content/locales/state).
+const JW_SUPPORTED = new Set(['us','de','br','au','nz','ca','uk','za','ie','bs','gf','ba','va','xk','by','dk','bz','cy','cm','gy','ml','ni','cd','mw','tz','pg','zw','az','lv','ec','tw','pk','bg','ru','ch','at','my','sg','fi','hu','gr','co','ua','hn','ee','py','is','pa','uy','do','es','fr','eg','ae','iq','hr','ci','cv','pf','lc','lu','sc','ne','me','mg','mz','ke','ug','tt','tc','zm','sn','jm','lb','ps','mk','cu','ao','ag','sv','dz','ma','ad','al','jo','bh','kw','om','qa','be','jp','kr','sa','ar','it','nl','pt','tr','in','mx','bf','cl','pe','th','se','cz','id','pl','ph','ro','no','bo','bb','cr','td','gh','gq','fj','gg','mt','mu','gt','lt','rs','si','ng','sk','il','ve','md','hk','li','mc','sm','gi','tn','ly','bm','ye']);
+
 function fetchProviders(mt, id, title, date, region) {
   const slug = title.toLowerCase().replace(/[''']/g,'').replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
-  const jwType = mt === 'movie' ? 'movie' : 'tv-show';
-  const jwUrl  = `https://www.justwatch.com/${region.toLowerCase()}/${jwType}/${slug}`;
+  const jwType = mt === 'movie' ? 'movie' : 'tv-series';
+  const jwLocale = (() => { const c = JW_LOCALE_MAP[region] || region.toLowerCase(); return JW_SUPPORTED.has(c) ? c : 'us'; })();
+  const jwUrl  = `https://www.justwatch.com/${jwLocale}/${jwType}/${slug}`;
   const gUrl   = `https://www.google.com/search?q=${encodeURIComponent(`${title} ${yearOf(date)} ${mt==='movie'?'movie':'TV show'} where to watch`)}`;
   // Low-data: omit the brand <img> tags; CSS already drops them via :root[data-low-data] rule.
   const jwImg = state.lowData ? '' : `<img src="justwatch.png" alt="" width="20" height="20" loading="lazy" decoding="async"/> `;
