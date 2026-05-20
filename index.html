@@ -351,6 +351,19 @@
             <div class="cast-rail" id="detail-cast"></div>
             <button type="button" class="see-more-btn" id="see-more-cast" hidden>See full cast</button>
           </div>
+
+          <div class="detail-footer">
+            <button type="button" class="copy-id-btn" id="copy-id-btn" title="Copy TMDB ID">
+              <svg class="copy-id-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <svg class="copy-id-check" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 6L9 17l-5-5"></path>
+              </svg>
+              <span class="copy-id-text">Copy ID</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -399,6 +412,56 @@
       <div class="collection-tabs" id="collection-tabs" role="tablist"></div>
       <p class="collection-status" id="collection-status" hidden></p>
       <div class="collection-body" id="collection-body"></div>
+    </div>
+  </div>
+
+  <!-- ============ ADBLOCK PROMPT OVERLAY ============ -->
+  <div class="overlay" id="adblock-overlay" aria-hidden="true">
+    <div class="overlay-card adblock-card" role="dialog" aria-modal="true" aria-labelledby="adblock-title">
+      <button class="overlay-close" id="adblock-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+      </button>
+      <div class="adblock-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          <path d="M9 12l2 2 4-4"></path>
+        </svg>
+      </div>
+      <h2 class="adblock-title" id="adblock-title">One quick thing</h2>
+      <p class="adblock-desc">The streaming page shows ads and pop-ups. We recommend installing <strong>uBlock Origin</strong> - a free, open-source ad blocker trusted by millions - before continuing. It only takes a moment.</p>
+
+      <button type="button" class="adblock-have" id="adblock-have-it">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>
+        I already have an adblocker
+      </button>
+
+      <div class="adblock-buttons">
+        <a class="adblock-btn" id="adblock-chrome" href="https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh" target="_blank" rel="noopener">
+          <svg class="adblock-btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
+          <span class="adblock-btn-lines">
+            <span class="adblock-btn-title">Install for Chrome, Edge, Brave, Opera</span>
+            <span class="adblock-btn-sub">Chrome Web Store - chromewebstore.google.com</span>
+          </span>
+        </a>
+        <a class="adblock-btn" id="adblock-firefox" href="https://addons.mozilla.org/addon/ublock-origin/" target="_blank" rel="noopener">
+          <svg class="adblock-btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
+          <span class="adblock-btn-lines">
+            <span class="adblock-btn-title">Install for Firefox</span>
+            <span class="adblock-btn-sub">Firefox Add-ons - addons.mozilla.org</span>
+          </span>
+        </a>
+      </div>
+
+      <div class="adblock-footer">
+        <label class="adblock-dismiss">
+          <input type="checkbox" id="adblock-dont-show">
+          <span>Don't show this again</span>
+        </label>
+        <button type="button" class="adblock-continue" id="adblock-continue">
+          Continue to site
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"></path></svg>
+        </button>
+      </div>
     </div>
   </div>
 

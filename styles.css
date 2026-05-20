@@ -931,13 +931,57 @@ input[type="range"]::-moz-range-thumb {
   letter-spacing: 0.005em;
 }
 .card-adult {
-  color: var(--primary);
-  font-weight: 700;
-  font-size: 9px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  background: var(--primary);
   border: 1px solid var(--primary);
-  border-radius: 3px;
-  padding: 0 3px;
+  border-radius: 4px;
+  padding: 1px 5px;
   text-transform: uppercase;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.25) inset;
+}
+
+/* Poster corner stamp for explicit content — loud enough that NSFW titles
+   cannot be mistaken when browsing. Top-right so it doesn't fight the ribbon. */
+.nsfw-corner {
+  position: absolute;
+  top: 8px; right: 8px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 8px;
+  background: var(--primary);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  border-radius: 4px;
+  text-transform: uppercase;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.55), 0 0 0 2px rgba(255, 255, 255, 0.1) inset;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.45);
+  animation: nsfw-pulse 2.6s ease-in-out infinite;
+}
+.nsfw-corner-sub {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  opacity: 0.95;
+}
+@keyframes nsfw-pulse {
+  0%, 100% { box-shadow: 0 4px 14px rgba(220, 38, 38, 0.55), 0 0 0 2px rgba(255, 255, 255, 0.1) inset; }
+  50%      { box-shadow: 0 6px 22px rgba(220, 38, 38, 0.85), 0 0 0 2px rgba(255, 255, 255, 0.18) inset; }
+}
+.card.is-nsfw .card-poster {
+  box-shadow: 0 0 0 2px var(--primary), 0 8px 24px rgba(220, 38, 38, 0.25);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nsfw-corner { animation: none; }
 }
 .card-lang {
   font-family: var(--font-mono);
@@ -1391,7 +1435,15 @@ input[type="range"]::-moz-range-thumb {
   color: var(--text-hi);
   font-size: 11px;
 }
-.detail-meta-row .badge.adult { color: var(--primary); border-color: var(--primary); }
+.detail-meta-row .badge.adult {
+  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset, 0 4px 14px rgba(220, 38, 38, 0.45);
+}
 
 .detail-overview {
   font-size: 14.5px;
@@ -1450,6 +1502,36 @@ input[type="range"]::-moz-range-thumb {
   transition: transform .25s var(--ease);
 }
 .btn-pirate:hover .pirate-flag { transform: rotate(-8deg) scale(1.1); }
+
+/* "Watch anime" — primary action for anime titles. Matches the vidking
+   button's visual style; hierarchy comes from the paired button being muted. */
+.btn-anime {
+  background: var(--bg-3);
+  color: var(--text-hi);
+  border-color: var(--border-hi);
+  cursor: pointer;
+}
+.btn-anime:hover {
+  background: var(--surface-hi);
+  border-color: var(--primary);
+  color: var(--primary-hi);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+}
+.btn-anime:disabled { cursor: wait; opacity: 0.75; }
+.btn-anime .anime-spark {
+  display: inline-block;
+  transition: transform .25s var(--ease);
+}
+.btn-anime:hover .anime-spark { transform: rotate(-8deg) scale(1.1); }
+
+/* Muted variant: applied to the vidking button when the anime primary is shown.
+   Greyed out but still clickable for users who want to bypass the anime path. */
+.btn-pirate.btn-muted {
+  opacity: 0.5;
+  filter: saturate(0.7);
+  transition: opacity .15s var(--ease), filter .15s var(--ease), background .15s var(--ease), border-color .15s var(--ease), box-shadow .15s var(--ease), color .15s var(--ease);
+}
+.btn-pirate.btn-muted:hover { opacity: 1; filter: none; }
 
 
 .detail-section { margin-top: 28px; }
@@ -1908,6 +1990,182 @@ input[type="range"]::-moz-range-thumb {
   color: var(--primary-hi);
   background: var(--primary-soft);
   border-radius: 999px;
+}
+
+
+/* ---------- Detail footer (Copy ID button) ---------- */
+.detail-footer {
+  margin-top: 32px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  justify-content: flex-end;
+}
+.copy-id-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-mid);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease), transform .12s var(--ease);
+}
+.copy-id-btn:hover { color: var(--text-hi); border-color: var(--border-hi); background: var(--surface-hi); }
+.copy-id-btn:active { transform: scale(0.97); }
+.copy-id-icon, .copy-id-check { display: block; }
+.copy-id-check { display: none; }
+.copy-id-btn.is-copied {
+  color: var(--text-hi);
+  background: color-mix(in oklab, var(--primary) 14%, var(--surface));
+  border-color: color-mix(in oklab, var(--primary) 50%, var(--border-hi));
+}
+.copy-id-btn.is-copied .copy-id-icon { display: none; }
+.copy-id-btn.is-copied .copy-id-check { display: block; color: var(--primary-hi); }
+
+
+/* ---------- Adblock prompt overlay ---------- */
+.adblock-card {
+  max-width: 480px;
+  padding: 32px 28px 24px;
+  text-align: center;
+}
+.adblock-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--primary), #ef4444);
+  color: #fff;
+  box-shadow: 0 8px 22px var(--accent-glow);
+}
+.adblock-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(19px, 2.2vw, 23px);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--text-hi);
+  margin-bottom: 8px;
+}
+.adblock-desc {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-mid);
+  margin: 0 auto 20px;
+  max-width: 380px;
+}
+.adblock-desc strong { color: var(--text-hi); font-weight: 600; }
+.adblock-have {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 18px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-hi));
+  border: none;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px var(--accent-glow);
+  cursor: pointer;
+  transition: transform .15s var(--ease), box-shadow .15s var(--ease);
+}
+.adblock-have:hover { transform: translateY(-1px); box-shadow: 0 10px 24px var(--accent-glow); }
+.adblock-have:active { transform: translateY(0); }
+.adblock-have svg { flex-shrink: 0; }
+
+.adblock-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+.adblock-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  color: var(--text-hi);
+  text-decoration: none;
+  transition: border-color .15s var(--ease), background .15s var(--ease), transform .12s var(--ease);
+}
+.adblock-btn:hover { border-color: var(--primary); background: var(--surface-hi); transform: translateY(-1px); }
+.adblock-btn:active { transform: translateY(0); }
+.adblock-btn-icon { flex-shrink: 0; color: var(--primary-hi); }
+.adblock-btn-lines { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.adblock-btn-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-hi);
+  line-height: 1.25;
+}
+.adblock-btn-sub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-mid);
+}
+.adblock-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.adblock-dismiss {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-mid);
+  cursor: pointer;
+  user-select: none;
+}
+.adblock-dismiss input {
+  width: 14px; height: 14px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.adblock-dismiss:hover { color: var(--text-hi); }
+.adblock-continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-mid);
+  background: transparent;
+  border: 1px solid var(--border-hi);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s, transform .12s;
+}
+.adblock-continue:hover { color: var(--text-hi); border-color: var(--text-mid); background: var(--surface); }
+.adblock-continue:active { transform: scale(0.97); }
+@media (max-width: 480px) {
+  .adblock-card { padding: 26px 20px 18px; }
+  .adblock-footer { flex-direction: column; align-items: stretch; gap: 10px; }
+  .adblock-continue { justify-content: center; }
 }
 
 

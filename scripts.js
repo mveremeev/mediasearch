@@ -55,6 +55,19 @@ const CAST_PREVIEW_MAX   = 8;
    Extend NSFW_BLOCK_KEYWORDS with more TMDB keyword IDs to broaden filtering.  */
 const NSFW_BLOCK_KEYWORDS = '198385'; // hentai (movies + TV)
 const ADULT_TEXT_HINTS = ['hentai', 'eroge', 'pornograph', 'softcore', 'erotica', 'eroticism'];
+/* TMDB keyword IDs we consider explicit. Used by lazy /keywords enrichment so
+   cards like Overflow (TMDB adult=false, but tagged hentai/softcore/etc.) still
+   get the NSFW badge. Kept conservative: nothing here that has legitimate
+   non-explicit uses (e.g. "adult animation" = Rick and Morty, skipped). */
+const NSFW_KEYWORD_IDS = new Set([
+  198385, // hentai
+  155477, // softcore
+  256466, // erotic
+  195669, // ecchi
+  280783, // pornography
+]);
+const nsfwKeywordCache = new Map();  // `${mt}:${id}` → boolean
+const nsfwLookupInFlight = new Set();
 
 const SERVICES = [
   { v: '8',   name: 'Netflix' },
@@ -264,6 +277,12 @@ const els = {
   infoOverlay:      $('info-overlay'),
   infoClose:        $('info-close'),
   infoContent:      $('info-content'),
+  copyIdBtn:        $('copy-id-btn'),
+  adblockOverlay:   $('adblock-overlay'),
+  adblockClose:     $('adblock-close'),
+  adblockContinue:  $('adblock-continue'),
+  adblockDontShow:  $('adblock-dont-show'),
+  adblockHaveIt:    $('adblock-have-it'),
   collectionBtn:    $('collection-btn'),
   collectionCount:  $('collection-count'),
   collectionOverlay:$('collection-overlay'),
@@ -326,14 +345,15 @@ const isAnime = (item) => {
   const ids = item.genre_ids || (item.genres ? item.genres.map(g => g.id) : []);
   return ids.includes(ANIME_GENRE_ID) && (item.original_language === ANIME_LANG);
 };
-/* Defence-in-depth NSFW heuristic.
-   TMDB's `adult` flag is unreliable for anime, and search endpoints don't honour
-   without_keywords. So we also scan the title/overview for explicit hints. */
-const isExplicit = (item) => {
-  if (item.adult) return true;
+/* NSFW = OR of three signals: TMDB's adult flag, our text-hint scan over
+   title/overview, and our keyword-tag check against TMDB's /keywords endpoint
+   (cached; enriched lazily after render — see enrichNsfwBadges). */
+const hasNsfwText = (item) => {
   const text = `${item.title || item.name || ''} ${item.original_title || item.original_name || ''} ${item.overview || ''}`.toLowerCase();
   return ADULT_TEXT_HINTS.some(k => text.includes(k));
 };
+const hasNsfwKeyword = (item) => nsfwKeywordCache.get(`${getMediaType(item)}:${item.id}`) === true;
+const isExplicit = (item) => !!item.adult || hasNsfwText(item) || hasNsfwKeyword(item);
 const getGenreLabel = (genreIds, mt) => {
   if (!genreIds?.length) return '';
   const map = mt === 'movie' ? GENRE_MOVIE : GENRE_TV;
@@ -786,9 +806,11 @@ function renderResults({ append = false } = {}) {
   if (!append) els.grid.innerHTML = '';
   const showRibbon = !state.query && state.sort === 'vote_average.desc';
   const startIdx = append ? els.grid.children.length : 0;
-  const html = state.cache.slice(startIdx).map((it, i) => renderCard(it, startIdx + i, showRibbon)).join('');
+  const newItems = state.cache.slice(startIdx);
+  const html = newItems.map((it, i) => renderCard(it, startIdx + i, showRibbon)).join('');
   els.grid.insertAdjacentHTML('beforeend', html);
   attachImageLoaders(els.grid);
+  enrichNsfwBadges(newItems);
 
   if (!append) attachImageLoaders(els.peopleGrid);
 
@@ -816,15 +838,19 @@ function renderCard(item, idx, showRibbon) {
      calls per page. The detail overlay shows the complete list. */
   const lang = (item.original_language || '').toLowerCase();
   const langName = lang ? (LANG_NAME_MAP[lang] || lang.toUpperCase()) : '';
+  // NSFW: trust TMDB's adult flag AND our local text-hint heuristic so soft
+  // explicit titles (where TMDB never set adult=true) still get flagged.
+  const nsfw = isExplicit(item);
   /* aria-label includes the title so axe's "visible text in accessible name"
      check passes when the visible adjacent text is the card title. */
   const quickBtn = (key, label, on) => `
     <button type="button" class="card-quick-btn quick-${key}${on ? ' is-active' : ''}"
       data-coll-action="${key}" aria-label="${escapeAttr(label + ': ' + title)}" aria-pressed="${on ? 'true' : 'false'}" title="${escapeAttr(label)}">${ICONS[key]}</button>`;
   return `
-    <article class="card" data-id="${item.id}" data-type="${mt}" data-fav="${fav ? '1' : '0'}" data-status="${status}" tabindex="0" role="button" aria-label="${escapeAttr(title)}" style="--i:${Math.min(idx, 24)}">
+    <article class="card${nsfw ? ' is-nsfw' : ''}" data-id="${item.id}" data-type="${mt}" data-fav="${fav ? '1' : '0'}" data-status="${status}" tabindex="0" role="button" aria-label="${escapeAttr((nsfw ? 'NSFW · ' : '') + title)}" style="--i:${Math.min(idx, 24)}">
       <div class="card-poster">
         ${showRib ? `<div class="ribbon" aria-hidden="true"><span class="ribbon-tag">Top</span><span class="ribbon-num">${rank}</span></div>` : ''}
+        ${nsfw ? `<div class="nsfw-corner" aria-label="NSFW"><span>NSFW</span><span class="nsfw-corner-sub">18+</span></div>` : ''}
         ${posterImg(item.poster_path, title)}
         <div class="card-quick" aria-label="Quick add to collection">
           ${quickBtn('favourite', 'Favourite', fav)}
@@ -840,7 +866,7 @@ function renderCard(item, idx, showRibbon) {
           <span class="num">${yearOf(date)}</span>
           ${typeLabel ? `<span class="dot">·</span><span>${typeLabel}${animeTag}</span>` : ''}
           ${lang ? `<span class="card-lang" title="${escapeAttr(langName)}">${escapeHtml(lang)}</span>` : ''}
-          ${item.adult ? `<span class="card-adult">18+</span>` : ''}
+          ${nsfw ? `<span class="card-adult">NSFW · 18+</span>` : ''}
           ${genres ? `<span class="genre">${escapeHtml(genres)}</span>` : ''}
         </div>
       </div>
@@ -892,6 +918,72 @@ function attachImageLoaders(root) {
     }
   });
 }
+
+/* Lazy NSFW keyword enrichment. The search/discover responses don't carry
+   keywords, so for each new card we fire a /keywords request, cache the verdict,
+   and stamp the badge onto the live card if it comes back NSFW. Only runs for
+   plausible candidates (anime — Japanese Animation) to keep request volume sane;
+   that's the corner of the catalog where soft-NSFW slips through. */
+function enrichNsfwBadges(items) {
+  if (!Array.isArray(items) || !items.length) return;
+  items.forEach(item => {
+    if (!item || !item.id) return;
+    const mt = getMediaType(item);
+    const key = `${mt}:${item.id}`;
+    // Already known via text/adult, or already keyword-cached → just paint.
+    if (hasNsfwText(item) || item.adult || nsfwKeywordCache.get(key) === true) {
+      paintNsfwOnCard(item);
+      return;
+    }
+    if (nsfwKeywordCache.has(key)) return;            // cached as not-NSFW
+    if (nsfwLookupInFlight.has(key)) return;
+    // Limit fetches to anime: server-side without_keywords filter catches the
+    // rest in discover, and search-mode hentai-tagged non-anime is vanishingly rare.
+    if (!isAnime(item)) return;
+    nsfwLookupInFlight.add(key);
+    fetch(`${TMDB}/${mt}/${item.id}/keywords?api_key=${API_KEY}`)
+      .then(r => r.json())
+      .then(d => {
+        const list = (mt === 'movie' ? d.keywords : d.results) || [];
+        const flagged = list.some(k => NSFW_KEYWORD_IDS.has(k.id));
+        nsfwKeywordCache.set(key, flagged);
+        if (flagged) paintNsfwOnCard(item);
+      })
+      .catch(() => {})
+      .finally(() => nsfwLookupInFlight.delete(key));
+  });
+}
+
+/* Mutate a live .card in place: add the corner stamp, the inline pill, and the
+   is-nsfw class. Idempotent so re-renders are safe. Uses createElement /
+   textContent only (no innerHTML), so Trusted Types stays out of the way. */
+function paintNsfwOnCard(item) {
+  const mt = getMediaType(item);
+  qsa(`.card[data-id="${item.id}"][data-type="${mt}"]`).forEach(card => {
+    if (card.classList.contains('is-nsfw')) return;
+    card.classList.add('is-nsfw');
+    const poster = card.querySelector('.card-poster');
+    if (poster && !poster.querySelector('.nsfw-corner')) {
+      const corner = document.createElement('div');
+      corner.className = 'nsfw-corner';
+      corner.setAttribute('aria-label', 'NSFW');
+      const a = document.createElement('span'); a.textContent = 'NSFW';
+      const b = document.createElement('span'); b.className = 'nsfw-corner-sub'; b.textContent = '18+';
+      corner.append(a, b);
+      poster.insertBefore(corner, poster.firstChild);
+    }
+    const meta = card.querySelector('.card-meta');
+    if (meta && !meta.querySelector('.card-adult')) {
+      const pill = document.createElement('span');
+      pill.className = 'card-adult';
+      pill.textContent = 'NSFW · 18+';
+      const genre = meta.querySelector('.genre');
+      if (genre) meta.insertBefore(pill, genre);
+      else meta.appendChild(pill);
+    }
+  });
+}
+
 
 /* Look up a TMDB-shaped item by id+type from any source: current grid cache,
    detail-override map, or the saved collection (rebuilt as a sparse stub).
@@ -1450,18 +1542,31 @@ function showDetail(id, mt) {
   els.detailProviders.innerHTML = '<div style="color:var(--text-mid);font-size:13px;display:flex;align-items:center;gap:8px;"><span class="spinner"></span>Loading streaming…</div>';
   els.regionRow.innerHTML = '';
 
+  // Reset the Copy ID pill so previous "Copied N" state doesn't carry over.
+  if (els.copyIdBtn) {
+    if (copyIdResetTimer) { clearTimeout(copyIdResetTimer); copyIdResetTimer = null; }
+    els.copyIdBtn.classList.remove('is-copied');
+    const label = qs('.copy-id-text', els.copyIdBtn);
+    if (label) label.textContent = 'Copy ID';
+  }
+
   showOverlay(els.detailOverlay);
   attachImageLoaders(els.detailOverlay);
 
-  // Fetch details + videos
-  fetch(`${TMDB}/${mt}/${id}?api_key=${API_KEY}&append_to_response=videos`)
+  // Fetch details + videos + keywords (keywords drives the NSFW badge for
+  // titles like Overflow where TMDB's adult flag is false but the tag is set).
+  fetch(`${TMDB}/${mt}/${id}?api_key=${API_KEY}&append_to_response=videos,keywords`)
     .then(r => r.json())
     .then(d => {
+      const kwList = (d.keywords && (d.keywords.keywords || d.keywords.results)) || [];
+      const keywordNsfw = kwList.some(k => NSFW_KEYWORD_IDS.has(k.id));
+      nsfwKeywordCache.set(`${mt}:${id}`, keywordNsfw);
       els.detailMeta.innerHTML = renderDetailMeta(item, d);
       renderDetailLangs(d);
       const trailer = (d.videos?.results || []).find(v => v.site === 'YouTube' && v.type === 'Trailer' && v.official)
                     || (d.videos?.results || []).find(v => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'));
       els.detailActions.innerHTML = renderDetailActions(item, trailer);
+      if (keywordNsfw) paintNsfwOnCard(item);
       // Overview can be richer if we have it
       if (d.overview) els.detailOverview.textContent = d.overview;
     })
@@ -1511,7 +1616,7 @@ function renderDetailMetaInitial(item) {
     <span class="dot">·</span>
     <span class="badge">${getTypeLabel(mt)}</span>
     ${isAnime(item) ? `<span class="badge">Anime</span>` : ''}
-    ${item.adult ? `<span class="badge adult">18+</span>` : ''}
+    ${isExplicit(item) ? `<span class="badge adult">NSFW · 18+</span>` : ''}
   `;
 }
 function renderDetailMeta(item, d) {
@@ -1536,7 +1641,7 @@ function renderDetailMeta(item, d) {
     <span class="dot">·</span>
     <span class="badge">${getTypeLabel(mt)}</span>
     ${isAnime(item) ? `<span class="badge">Anime</span>` : ''}
-    ${item.adult ? `<span class="badge adult">18+</span>` : ''}
+    ${isExplicit(item) ? `<span class="badge adult">NSFW · 18+</span>` : ''}
     ${genres ? `<span class="dot">·</span><span>${escapeHtml(genres)}</span>` : ''}
     ${extra}
   `;
@@ -1552,7 +1657,15 @@ function renderDetailActions(item, trailer) {
       ? `https://www.vidking.net/embed/movie/${item.id}?color=dc2626&autoPlay=true`
       : `https://www.vidking.net/embed/tv/${item.id}/1/1?color=dc2626&autoPlay=true&nextEpisode=true&episodeSelector=true`;
     const watchLabel = mt === 'movie' ? 'Watch movie' : 'Watch show';
-    parts.push(`<a class="btn btn-pirate" target="_blank" rel="noopener" href="${watchUrl}"><span class="pirate-flag" aria-hidden="true">🏴‍☠️</span> ${watchLabel}</a>`);
+    const animeMode = isAnime(item);
+    if (animeMode) {
+      // Primary action for anime: button (not <a>) since the AniList id needs an
+      // async ARM-API lookup before we know the destination URL.
+      parts.push(`<button type="button" class="btn btn-anime" data-anime-tmdb="${item.id}" data-anime-mt="${mt}"><span class="anime-spark" aria-hidden="true">🏴‍☠️</span> Watch anime</button>`);
+    }
+    // Vidking button: greyed but still clickable when an anime primary is present.
+    const pirateClass = animeMode ? 'btn btn-pirate btn-muted' : 'btn btn-pirate';
+    parts.push(`<a class="${pirateClass}" target="_blank" rel="noopener" href="${watchUrl}"><span class="pirate-flag" aria-hidden="true">🏴‍☠️</span> ${watchLabel}</a>`);
   }
   return parts.join('');
 }
@@ -1853,6 +1966,85 @@ function importCollection(file) {
 }
 
 
+/* ---------- 13b2. ARM (TMDB → AniList) ----------
+   Public ARM API by haglund maps between anime ID namespaces. We use it to turn
+   the TMDB id into an AniList id, which Miruro consumes in its /watch/[id] route.
+   Per the v2 docs: GET /api/v2/themoviedb?id=<n>&include=anilist returns an
+   array of match objects (or null when nothing maps). Cached per-session. */
+const ARM_API = 'https://arm.haglund.dev/api/v2/themoviedb';
+const animeIdCache = new Map();
+async function tmdbToAnilist(tmdbId, mediaType) {
+  const key = `${mediaType}:${tmdbId}`;
+  if (animeIdCache.has(key)) return animeIdCache.get(key);
+  try {
+    const r = await fetch(`${ARM_API}?id=${encodeURIComponent(tmdbId)}&include=anilist`);
+    if (!r.ok) throw new Error('arm');
+    const d = await r.json();
+    // d is an array of matches, or null when no mapping exists.
+    const arr = Array.isArray(d) ? d : [];
+    const hit = arr.find(x => x && x.anilist);
+    const anilist = hit ? hit.anilist : null;
+    animeIdCache.set(key, anilist);
+    return anilist;
+  } catch {
+    return null;
+  }
+}
+
+
+/* ---------- 13c. ADBLOCK PROMPT ----------
+   Intercepts clicks on the .btn-pirate watch button and suggests uBlock Origin
+   first. Suppressed when the user has ticked "Don't show again". The original
+   URL is stashed on the continue button so we can window.open it on confirm. */
+const ADBLOCK_SKIP_KEY = 'msearch-adblock-skip';
+const adblockSkipped = () => {
+  try { return localStorage.getItem(ADBLOCK_SKIP_KEY) === '1'; } catch { return false; }
+};
+function showAdblockPrompt(url) {
+  els.adblockContinue.dataset.url = url || '';
+  els.adblockDontShow.checked = false;
+  showOverlay(els.adblockOverlay);
+}
+
+
+/* ---------- 13d. COPY ID ----------
+   Small affordance at the bottom of the detail overlay. Copies the TMDB
+   numeric ID; clipboard API with a textarea fallback for non-secure contexts. */
+async function copyTextToClipboard(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch { return false; }
+}
+let copyIdResetTimer = null;
+function flashCopyId(text) {
+  const label = qs('.copy-id-text', els.copyIdBtn);
+  if (!label) return;
+  if (copyIdResetTimer) clearTimeout(copyIdResetTimer);
+  els.copyIdBtn.classList.add('is-copied');
+  label.textContent = text;
+  copyIdResetTimer = setTimeout(() => {
+    els.copyIdBtn.classList.remove('is-copied');
+    label.textContent = 'Copy ID';
+    copyIdResetTimer = null;
+  }, 1600);
+}
+
+
 /* ---------- 14. INFINITE SCROLL ---------- */
 const io = new IntersectionObserver((entries) => {
   entries.forEach(e => {
@@ -2090,6 +2282,78 @@ function init() {
   els.castGridOverlay.addEventListener('click', (e) => { if (e.target === els.castGridOverlay) hideOverlay(els.castGridOverlay); });
   els.infoClose.addEventListener('click', () => hideOverlay(els.infoOverlay));
   els.infoOverlay.addEventListener('click', (e) => { if (e.target === els.infoOverlay) hideOverlay(els.infoOverlay); });
+
+  // Watch buttons: anime variant fetches an AniList id first; both then route
+  // through the adblock prompt unless the user has dismissed it.
+  els.detailActions.addEventListener('click', async (e) => {
+    const animeBtn = e.target.closest('button.btn-anime');
+    if (animeBtn) {
+      if (animeBtn.dataset.busy === '1') return;
+      const tmdbId = animeBtn.dataset.animeTmdb;
+      const mt = animeBtn.dataset.animeMt || 'tv';
+      if (!tmdbId) return;
+      const originalHtml = animeBtn.innerHTML;
+      animeBtn.dataset.busy = '1';
+      animeBtn.disabled = true;
+      animeBtn.innerHTML = '<span class="spinner"></span> Looking up…';
+      try {
+        const anilistId = await tmdbToAnilist(tmdbId, mt);
+        if (!anilistId) {
+          animeBtn.innerHTML = 'No anime match found';
+          setTimeout(() => {
+            animeBtn.innerHTML = originalHtml;
+            animeBtn.disabled = false;
+            delete animeBtn.dataset.busy;
+          }, 2200);
+          return;
+        }
+        const url = `https://www.miruro.to/watch/${anilistId}`;
+        animeBtn.innerHTML = originalHtml;
+        animeBtn.disabled = false;
+        delete animeBtn.dataset.busy;
+        if (adblockSkipped()) window.open(url, '_blank', 'noopener,noreferrer');
+        else                  showAdblockPrompt(url);
+      } catch {
+        animeBtn.innerHTML = originalHtml;
+        animeBtn.disabled = false;
+        delete animeBtn.dataset.busy;
+      }
+      return;
+    }
+
+    const link = e.target.closest('a.btn-pirate');
+    if (!link) return;
+    if (adblockSkipped()) return;
+    // Let modified-click (new tab, save, etc.) fall through to the browser.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button === 1) return;
+    e.preventDefault();
+    showAdblockPrompt(link.href);
+  });
+  els.adblockClose.addEventListener('click', () => hideOverlay(els.adblockOverlay));
+  els.adblockOverlay.addEventListener('click', (e) => { if (e.target === els.adblockOverlay) hideOverlay(els.adblockOverlay); });
+  els.adblockContinue.addEventListener('click', () => {
+    if (els.adblockDontShow.checked) {
+      try { localStorage.setItem(ADBLOCK_SKIP_KEY, '1'); } catch {}
+    }
+    const url = els.adblockContinue.dataset.url || '';
+    hideOverlay(els.adblockOverlay);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  });
+  // "I already have an adblocker" — trust the user, persist the skip flag,
+  // and continue to the site in one click.
+  els.adblockHaveIt.addEventListener('click', () => {
+    try { localStorage.setItem(ADBLOCK_SKIP_KEY, '1'); } catch {}
+    const url = els.adblockContinue.dataset.url || '';
+    hideOverlay(els.adblockOverlay);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  });
+
+  // Copy ID button (bottom of detail overlay)
+  els.copyIdBtn.addEventListener('click', async () => {
+    if (!currentDetail) return;
+    const ok = await copyTextToClipboard(String(currentDetail.id));
+    flashCopyId(ok ? `Copied ${currentDetail.id}` : 'Copy failed');
+  });
 
   // Collection: open from header, close, outside-click, import/export, tabs, card clicks
   els.collectionBtn.addEventListener('click', openCollection);
