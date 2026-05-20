@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Reset</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      display: grid; place-items: center;
+      min-height: 100vh; margin: 0; padding: 24px;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+      background: #08090c; color: #d4d4d8;
+      text-align: center;
+    }
+    .card { max-width: 460px; }
+    h1 {
+      color: #fafafa;
+      font-size: 22px;
+      margin: 0 0 10px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    p { color: #9ca3af; line-height: 1.5; margin: 8px 0; }
+    a { color: #ef4444; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .status {
+      margin-top: 18px;
+      padding: 10px 14px;
+      font-family: ui-monospace, "JetBrains Mono", monospace;
+      font-size: 12px;
+      color: #5b6170;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      word-break: break-word;
+    }
+    .status.done { color: #22c55e; border-color: rgba(34,197,94,0.4); }
+    .status.fail { color: #ef4444; border-color: rgba(239,68,68,0.4); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Reset local data</h1>
+    <p>Wipes preferences, collection, dismissed prompts, and any other data this site stored in your browser.</p>
+    <p class="status" id="status">Working…</p>
+    <p><a href="/">← Back to Stash</a></p>
+  </main>
+  <script src="reset.js"></script>
+</body>
+</html>
