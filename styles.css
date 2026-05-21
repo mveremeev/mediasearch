@@ -1993,11 +1993,12 @@ input[type="range"]::-moz-range-thumb {
 }
 
 
-/* ---------- Detail footer (Copy ID button) ---------- */
+/* ---------- Detail footer (Copy ID / Copy slug buttons) ---------- */
 .detail-footer {
   margin-top: 32px;
   padding-top: 18px;
   border-top: 1px dashed var(--border);
+  gap: 8px;
   display: flex;
   justify-content: flex-end;
 }

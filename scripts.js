@@ -277,6 +277,7 @@ const els = {
   infoOverlay:      $('info-overlay'),
   infoClose:        $('info-close'),
   infoContent:      $('info-content'),
+  copySlugBtn:      $('copy-slug-btn'),
   copyIdBtn:        $('copy-id-btn'),
   adblockOverlay:   $('adblock-overlay'),
   adblockClose:     $('adblock-close'),
@@ -1542,12 +1543,18 @@ function showDetail(id, mt) {
   els.detailProviders.innerHTML = '<div style="color:var(--text-mid);font-size:13px;display:flex;align-items:center;gap:8px;"><span class="spinner"></span>Loading streaming…</div>';
   els.regionRow.innerHTML = '';
 
-  // Reset the Copy ID pill so previous "Copied N" state doesn't carry over.
+  // Reset the Copy ID / Copy slug pills so previous state doesn't carry over.
   if (els.copyIdBtn) {
     if (copyIdResetTimer) { clearTimeout(copyIdResetTimer); copyIdResetTimer = null; }
     els.copyIdBtn.classList.remove('is-copied');
     const label = qs('.copy-id-text', els.copyIdBtn);
     if (label) label.textContent = 'Copy ID';
+  }
+  if (els.copySlugBtn) {
+    if (copySlugResetTimer) { clearTimeout(copySlugResetTimer); copySlugResetTimer = null; }
+    els.copySlugBtn.classList.remove('is-copied');
+    const label = qs('.copy-id-text', els.copySlugBtn);
+    if (label) label.textContent = 'Copy slug';
   }
 
   showOverlay(els.detailOverlay);
@@ -1659,9 +1666,7 @@ function renderDetailActions(item, trailer) {
     const watchLabel = mt === 'movie' ? 'Watch movie' : 'Watch show';
     const animeMode = isAnime(item);
     if (animeMode) {
-      // Primary action for anime: button (not <a>) since the AniList id needs an
-      // async ARM-API lookup before we know the destination URL.
-      parts.push(`<button type="button" class="btn btn-anime" data-anime-tmdb="${item.id}" data-anime-mt="${mt}"><span class="anime-spark" aria-hidden="true">🏴‍☠️</span> Watch anime</button>`);
+      parts.push(`<button type="button" class="btn btn-anime"><span class="anime-spark" aria-hidden="true">🏴‍☠️</span> Watch anime</button>`);
     }
     // Vidking button: greyed but still clickable when an anime primary is present.
     const pirateClass = animeMode ? 'btn btn-pirate btn-muted' : 'btn btn-pirate';
@@ -1679,22 +1684,30 @@ function fetchProviders(mt, id, title, date, region) {
   const slug = title.toLowerCase().replace(/[''']/g,'').replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
   const jwType = mt === 'movie' ? 'movie' : 'tv-series';
   const jwLocale = (() => { const c = JW_LOCALE_MAP[region] || region.toLowerCase(); return JW_SUPPORTED.has(c) ? c : 'us'; })();
-  const jwUrl  = `https://www.justwatch.com/${jwLocale}/${jwType}/${slug}`;
-  const gUrl   = `https://www.google.com/search?q=${encodeURIComponent(`${title} ${yearOf(date)} ${mt==='movie'?'movie':'TV show'} where to watch`)}`;
+  const jwFallback = `https://www.justwatch.com/${jwLocale}/${jwType}/${slug}`;
+  const gUrl    = `https://www.google.com/search?q=${encodeURIComponent(`${title} ${yearOf(date)} ${mt==='movie'?'movie':'TV show'} where to watch`)}`;
+
   // Low-data: omit the brand <img> tags; CSS already drops them via :root[data-low-data] rule.
-  const jwImg = state.lowData ? '' : `<img src="justwatch.png" alt="" width="20" height="20" loading="lazy" decoding="async"/> `;
-  const gImg  = state.lowData ? '' : `<img src="Google.png" alt="" width="20" height="20" loading="lazy" decoding="async"/> `;
-  const links  = `
-    <div class="provider-row">
-      <a href="${jwUrl}" target="_blank" rel="noopener">${jwImg}JustWatch →</a>
-      <a href="${gUrl}" target="_blank" rel="noopener">${gImg}Google →</a>
-    </div>`;
+  const buildLinks = (jwUrl) => {
+    const tmdbImg = state.lowData ? '' : `<img src="TMDB.png" alt="" width="20" height="20" loading="lazy" decoding="async"/>`;
+    const jwImg   = state.lowData ? '' : `<img src="justwatch.png" alt="" width="20" height="20" loading="lazy" decoding="async"/>`;
+    const gImg    = state.lowData ? '' : `<img src="Google.png" alt="" width="20" height="20" loading="lazy" decoding="async"/> `;
+    const bothIcons = state.lowData ? '' : `${tmdbImg} ${jwImg} `;
+    return `
+      <div class="provider-row">
+        <a href="${jwUrl}" target="_blank" rel="noopener">${bothIcons}TMDB (JustWatch) →</a>
+        <a href="${gUrl}" target="_blank" rel="noopener">${gImg}Google →</a>
+      </div>`;
+  };
 
   els.detailProviders.innerHTML = '<div style="color:var(--text-mid);font-size:13px;display:flex;align-items:center;gap:8px;"><span class="spinner"></span>Loading…</div>';
   fetch(`${TMDB}/${mt}/${id}/watch/providers?api_key=${API_KEY}`)
     .then(r => r.json())
     .then(data => {
       const regionData = data.results?.[region];
+      const jwUrl = regionData?.link || jwFallback;
+      const links = buildLinks(jwUrl);
+
       if (!regionData) {
         // Show what regions DO have it (for VPN hint)
         const others = Object.keys(data.results || {}).filter(c => {
@@ -1745,7 +1758,9 @@ function fetchProviders(mt, id, title, date, region) {
         els.detailProviders.innerHTML = blocks + links;
       }
     })
-    .catch(() => { els.detailProviders.innerHTML = `<p class="providers-empty">Could not load providers.</p>${links}`; });
+    .catch(() => {
+      els.detailProviders.innerHTML = `<p class="providers-empty">Could not load providers.</p>${buildLinks(jwFallback)}`;
+    });
 }
 
 
@@ -1966,32 +1981,6 @@ function importCollection(file) {
 }
 
 
-/* ---------- 13b2. ARM (TMDB → AniList) ----------
-   Public ARM API by haglund maps between anime ID namespaces. We use it to turn
-   the TMDB id into an AniList id, which Miruro consumes in its /watch/[id] route.
-   Per the v2 docs: GET /api/v2/themoviedb?id=<n>&include=anilist returns an
-   array of match objects (or null when nothing maps). Cached per-session. */
-const ARM_API = 'https://arm.haglund.dev/api/v2/themoviedb';
-const animeIdCache = new Map();
-async function tmdbToAnilist(tmdbId, mediaType) {
-  const key = `${mediaType}:${tmdbId}`;
-  if (animeIdCache.has(key)) return animeIdCache.get(key);
-  try {
-    const r = await fetch(`${ARM_API}?id=${encodeURIComponent(tmdbId)}&include=anilist`);
-    if (!r.ok) throw new Error('arm');
-    const d = await r.json();
-    // d is an array of matches, or null when no mapping exists.
-    const arr = Array.isArray(d) ? d : [];
-    const hit = arr.find(x => x && x.anilist);
-    const anilist = hit ? hit.anilist : null;
-    animeIdCache.set(key, anilist);
-    return anilist;
-  } catch {
-    return null;
-  }
-}
-
-
 /* ---------- 13c. ADBLOCK PROMPT ----------
    Intercepts clicks on the .btn-pirate watch button and suggests uBlock Origin
    first. Suppressed when the user has ticked "Don't show again". The original
@@ -2030,6 +2019,26 @@ async function copyTextToClipboard(text) {
     return ok;
   } catch { return false; }
 }
+const slugify = (str) =>
+  (str || '').toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+let copySlugResetTimer = null;
+function flashCopySlug(text) {
+  const label = qs('.copy-id-text', els.copySlugBtn);
+  if (!label) return;
+  if (copySlugResetTimer) clearTimeout(copySlugResetTimer);
+  els.copySlugBtn.classList.add('is-copied');
+  label.textContent = text;
+  copySlugResetTimer = setTimeout(() => {
+    els.copySlugBtn.classList.remove('is-copied');
+    label.textContent = 'Copy slug';
+    copySlugResetTimer = null;
+  }, 1600);
+}
+
 let copyIdResetTimer = null;
 function flashCopyId(text) {
   const label = qs('.copy-id-text', els.copyIdBtn);
@@ -2283,41 +2292,18 @@ function init() {
   els.infoClose.addEventListener('click', () => hideOverlay(els.infoOverlay));
   els.infoOverlay.addEventListener('click', (e) => { if (e.target === els.infoOverlay) hideOverlay(els.infoOverlay); });
 
-  // Watch buttons: anime variant fetches an AniList id first; both then route
-  // through the adblock prompt unless the user has dismissed it.
-  els.detailActions.addEventListener('click', async (e) => {
+  // Watch buttons: anime variant routes to miruro's search by slugified title;
+  // both then route through the adblock prompt unless the user has dismissed it.
+  els.detailActions.addEventListener('click', (e) => {
     const animeBtn = e.target.closest('button.btn-anime');
     if (animeBtn) {
-      if (animeBtn.dataset.busy === '1') return;
-      const tmdbId = animeBtn.dataset.animeTmdb;
-      const mt = animeBtn.dataset.animeMt || 'tv';
-      if (!tmdbId) return;
-      const originalHtml = animeBtn.innerHTML;
-      animeBtn.dataset.busy = '1';
-      animeBtn.disabled = true;
-      animeBtn.innerHTML = '<span class="spinner"></span> Looking up…';
-      try {
-        const anilistId = await tmdbToAnilist(tmdbId, mt);
-        if (!anilistId) {
-          animeBtn.innerHTML = 'No anime match found';
-          setTimeout(() => {
-            animeBtn.innerHTML = originalHtml;
-            animeBtn.disabled = false;
-            delete animeBtn.dataset.busy;
-          }, 2200);
-          return;
-        }
-        const url = `https://www.miruro.to/watch/${anilistId}`;
-        animeBtn.innerHTML = originalHtml;
-        animeBtn.disabled = false;
-        delete animeBtn.dataset.busy;
-        if (adblockSkipped()) window.open(url, '_blank', 'noopener,noreferrer');
-        else                  showAdblockPrompt(url);
-      } catch {
-        animeBtn.innerHTML = originalHtml;
-        animeBtn.disabled = false;
-        delete animeBtn.dataset.busy;
-      }
+      if (!currentDetail) return;
+      const title = currentDetail.item.title || currentDetail.item.name || '';
+      const slug = slugify(title);
+      if (!slug) return;
+      const url = `https://www.miruro.to/search?query=${encodeURIComponent(slug)}&type=ANIME&sort=POPULARITY_DESC`;
+      if (adblockSkipped()) window.open(url, '_blank', 'noopener,noreferrer');
+      else                  showAdblockPrompt(url);
       return;
     }
 
@@ -2346,6 +2332,15 @@ function init() {
     const url = els.adblockContinue.dataset.url || '';
     hideOverlay(els.adblockOverlay);
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  });
+
+  // Copy slug button
+  els.copySlugBtn.addEventListener('click', async () => {
+    if (!currentDetail) return;
+    const title = currentDetail.item.title || currentDetail.item.name || '';
+    const slug = slugify(title);
+    const ok = await copyTextToClipboard(slug);
+    flashCopySlug(ok ? 'Copied' : 'Copy failed');
   });
 
   // Copy ID button (bottom of detail overlay)
