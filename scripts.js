@@ -457,6 +457,7 @@ function entryFromItem(item) {
     year: yearOf(date),
     favourite: false,
     status: null,
+    rating: null,
     addedAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -475,7 +476,7 @@ function upsertEntry(item, patch) {
   };
   const next = { ...enriched, ...patch, updatedAt: Date.now() };
   // If the entry no longer represents anything, drop it.
-  if (!next.favourite && !next.status) {
+  if (!next.favourite && !next.status && !next.rating) {
     if (existing) { delete col.items[key]; saveCollection(col); }
     return null;
   }
@@ -489,21 +490,22 @@ function setEntryStatus(item, status) {
   const cur = getEntry(item.id, getMediaType(item));
   // clicking the same status clears it
   const next = (cur && cur.status === status) ? null : status;
-  const update = { status: next };
-  // clear favourite when setting liked/disliked
-  if ((status === 'liked' || status === 'disliked') && next) {
-    update.favourite = false;
-  }
+  return upsertEntry(item, { status: next });
+}
+function setRating(item, rating) {
+  const cur = getEntry(item.id, getMediaType(item));
+  const next = (cur && cur.rating === rating) ? null : rating;
+  const update = { rating: next };
+  // favourite/liked/disliked are mutually exclusive: setting a rating clears favourite
+  if (next) update.favourite = false;
   return upsertEntry(item, update);
 }
 function toggleFavourite(item) {
   const cur = getEntry(item.id, getMediaType(item));
   const newFav = !(cur && cur.favourite);
   const update = { favourite: newFav };
-  // clear status when toggling favourite on
-  if (newFav && (cur?.status === 'liked' || cur?.status === 'disliked')) {
-    update.status = null;
-  }
+  // favourite/liked/disliked are mutually exclusive: turning on favourite clears rating
+  if (newFav) update.rating = null;
   return upsertEntry(item, update);
 }
 function getCounts() {
@@ -512,6 +514,7 @@ function getCounts() {
   items.forEach(e => {
     if (e.favourite) c.favourite++;
     if (e.status && c[e.status] != null) c[e.status]++;
+    if (e.rating && c[e.rating] != null) c[e.rating]++;
   });
   return c;
 }
@@ -528,7 +531,7 @@ function mergeImport(incoming) {
     const existing = col.items[key];
     if (!existing) {
       col.items[key] = {
-        favourite: false, status: null,
+        favourite: false, status: null, rating: null,
         addedAt: inc.addedAt || Date.now(),
         updatedAt: inc.updatedAt || Date.now(),
         ...inc,
@@ -543,6 +546,7 @@ function mergeImport(incoming) {
       ...existing,
       favourite: newer.favourite ?? existing.favourite,
       status:    newer.status    ?? existing.status,
+      rating:    newer.rating    ?? existing.rating,
       title:      inc.title      || existing.title,
       posterPath: inc.posterPath || existing.posterPath,
       year:       inc.year       || existing.year,
@@ -847,6 +851,7 @@ function renderCard(item, idx, showRibbon) {
   const entry = getEntry(item.id, mt) || {};
   const fav = !!entry.favourite;
   const status = entry.status || '';
+  const userRating = entry.rating || '';
   /* Original language only - TMDB's discover/search responses don't include
      `spoken_languages`. Fetching the full list per card would cost N extra
      calls per page. The detail overlay shows the complete list. */
@@ -861,7 +866,7 @@ function renderCard(item, idx, showRibbon) {
     <button type="button" class="card-quick-btn quick-${key}${on ? ' is-active' : ''}"
       data-coll-action="${key}" aria-label="${escapeAttr(label + ': ' + title)}" aria-pressed="${on ? 'true' : 'false'}" title="${escapeAttr(label)}">${ICONS[key]}</button>`;
   return `
-    <article class="card${nsfw ? ' is-nsfw' : ''}" data-id="${item.id}" data-type="${mt}" data-fav="${fav ? '1' : '0'}" data-status="${status}" tabindex="0" role="button" aria-label="${escapeAttr((nsfw ? 'NSFW · ' : '') + title)}" style="--i:${Math.min(idx, 24)}">
+    <article class="card${nsfw ? ' is-nsfw' : ''}" data-id="${item.id}" data-type="${mt}" data-fav="${fav ? '1' : '0'}" data-status="${status}" data-rating="${userRating}" tabindex="0" role="button" aria-label="${escapeAttr((nsfw ? 'NSFW · ' : '') + title)}" style="--i:${Math.min(idx, 24)}">
       <div class="card-poster">
         ${showRib ? `<div class="ribbon" aria-hidden="true"><span class="ribbon-tag">Top</span><span class="ribbon-num">${rank}</span></div>` : ''}
         ${nsfw ? `<div class="nsfw-corner" aria-label="NSFW"><span>NSFW</span><span class="nsfw-corner-sub">18+</span></div>` : ''}
@@ -871,8 +876,8 @@ function renderCard(item, idx, showRibbon) {
           ${quickBtn('want', 'Want to watch', status === 'want')}
           ${quickBtn('watching', 'Watching', status === 'watching')}
           ${quickBtn('watched', 'Watched', status === 'watched')}
-          ${quickBtn('liked', 'Liked', status === 'liked')}
-          ${quickBtn('disliked', 'Disliked', status === 'disliked')}
+          ${quickBtn('liked', 'Liked', userRating === 'liked')}
+          ${quickBtn('disliked', 'Disliked', userRating === 'disliked')}
         </div>
       </div>
       <div class="card-info">
@@ -1029,6 +1034,7 @@ function handleCollectionActionClick(e) {
   if (!item) return true;
   const action = btn.dataset.collAction;
   if (action === 'favourite') toggleFavourite(item);
+  else if (action === 'liked' || action === 'disliked') setRating(item, action);
   else                        setEntryStatus(item, action);
   return true;
 }
@@ -1042,11 +1048,16 @@ function refreshCardStates(root = document) {
     const entry = getEntry(id, mt) || {};
     const fav = !!entry.favourite;
     const status = entry.status || '';
+    const rating = entry.rating || '';
     card.dataset.fav = fav ? '1' : '0';
     card.dataset.status = status;
+    card.dataset.rating = rating;
     qsa('.card-quick-btn', card).forEach(btn => {
       const a = btn.dataset.collAction;
-      const on = a === 'favourite' ? fav : status === a;
+      let on;
+      if (a === 'favourite') on = fav;
+      else if (a === 'liked' || a === 'disliked') on = rating === a;
+      else on = status === a;
       btn.classList.toggle('is-active', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
@@ -1509,8 +1520,9 @@ function showLanguageInfoOverlay(spoken, origIso) {
 
 function renderCollectionActions(item) {
   const entry = getEntry(item.id, getMediaType(item)) || {};
-  const fav   = !!entry.favourite;
-  const status= entry.status || '';
+  const fav    = !!entry.favourite;
+  const status = entry.status || '';
+  const rating = entry.rating || '';
   const btn = (key, label, on) => `
     <button type="button" class="coll-btn coll-${key}${on ? ' is-active' : ''}"
       data-coll-action="${key}" aria-pressed="${on ? 'true' : 'false'}" title="${label}">
@@ -1522,8 +1534,8 @@ function renderCollectionActions(item) {
     btn('want',      'Want to watch', status === 'want'),
     btn('watching',  'Watching',    status === 'watching'),
     btn('watched',   'Watched',     status === 'watched'),
-    btn('liked',     'Liked',       status === 'liked'),
-    btn('disliked',  'Disliked',    status === 'disliked'),
+    btn('liked',     'Liked',       rating === 'liked'),
+    btn('disliked',  'Disliked',    rating === 'disliked'),
   ].join('');
 }
 
@@ -1917,6 +1929,8 @@ function renderCollectionBody() {
   let filtered;
   if (collectionTab === 'all')             filtered = items;
   else if (collectionTab === 'favourite')  filtered = items.filter(e => e.favourite);
+  else if (collectionTab === 'liked' || collectionTab === 'disliked')
+                                           filtered = items.filter(e => e.rating === collectionTab);
   else                                     filtered = items.filter(e => e.status === collectionTab);
   filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
@@ -2406,6 +2420,7 @@ function init() {
     if (!btn || !currentDetail) return;
     const action = btn.dataset.collAction;
     if (action === 'favourite') toggleFavourite(currentDetail.item);
+    else if (action === 'liked' || action === 'disliked') setRating(currentDetail.item, action);
     else                        setEntryStatus(currentDetail.item, action);
   });
 
