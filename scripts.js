@@ -178,6 +178,8 @@ const ICONS = {
   want:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>',
   watching:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>',
   watched:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"></path></svg>',
+  liked:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/><path d="M7 10v12"/></svg>',
+  disliked:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/><path d="M17 14V2"/></svg>',
   download:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>',
   upload:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"></path></svg>',
 };
@@ -487,15 +489,26 @@ function setEntryStatus(item, status) {
   const cur = getEntry(item.id, getMediaType(item));
   // clicking the same status clears it
   const next = (cur && cur.status === status) ? null : status;
-  return upsertEntry(item, { status: next });
+  const update = { status: next };
+  // clear favourite when setting liked/disliked
+  if ((status === 'liked' || status === 'disliked') && next) {
+    update.favourite = false;
+  }
+  return upsertEntry(item, update);
 }
 function toggleFavourite(item) {
   const cur = getEntry(item.id, getMediaType(item));
-  return upsertEntry(item, { favourite: !(cur && cur.favourite) });
+  const newFav = !(cur && cur.favourite);
+  const update = { favourite: newFav };
+  // clear status when toggling favourite on
+  if (newFav && (cur?.status === 'liked' || cur?.status === 'disliked')) {
+    update.status = null;
+  }
+  return upsertEntry(item, update);
 }
 function getCounts() {
   const items = Object.values(loadCollection().items);
-  const c = { favourite:0, want:0, watching:0, watched:0, total: items.length };
+  const c = { favourite:0, want:0, watching:0, watched:0, liked:0, disliked:0, total: items.length };
   items.forEach(e => {
     if (e.favourite) c.favourite++;
     if (e.status && c[e.status] != null) c[e.status]++;
@@ -858,6 +871,8 @@ function renderCard(item, idx, showRibbon) {
           ${quickBtn('want', 'Want to watch', status === 'want')}
           ${quickBtn('watching', 'Watching', status === 'watching')}
           ${quickBtn('watched', 'Watched', status === 'watched')}
+          ${quickBtn('liked', 'Liked', status === 'liked')}
+          ${quickBtn('disliked', 'Disliked', status === 'disliked')}
         </div>
       </div>
       <div class="card-info">
@@ -1507,6 +1522,8 @@ function renderCollectionActions(item) {
     btn('want',      'Want to watch', status === 'want'),
     btn('watching',  'Watching',    status === 'watching'),
     btn('watched',   'Watched',     status === 'watched'),
+    btn('liked',     'Liked',       status === 'liked'),
+    btn('disliked',  'Disliked',    status === 'disliked'),
   ].join('');
 }
 
@@ -1844,14 +1861,16 @@ function showInfoOverlay(regions) {
 let collectionTab = 'all';
 const COLLECTION_TABS = [
   { key: 'all',       label: 'All' },
-  { key: 'favourite', label: 'Favourites' },
   { key: 'want',      label: 'Want to watch' },
+  { key: 'favourite', label: 'Favourites' },
   { key: 'watching',  label: 'Watching' },
   { key: 'watched',   label: 'Watched' },
+  { key: 'liked',     label: 'Liked' },
+  { key: 'disliked',  label: 'Disliked' },
 ];
 
 function openCollection() {
-  collectionTab = 'all';
+  collectionTab = 'want';
   renderCollection();
   showOverlay(els.collectionOverlay);
 }
