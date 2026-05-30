@@ -487,5 +487,13 @@
 
 
   <script src="scripts.js" defer></script>
+
+  <!-- Vercel Web Analytics (visitors + page views). Served same-origin from
+       /_vercel/insights/ once Web Analytics is enabled for the project, so it
+       satisfies the strict script-src 'self' / connect-src 'self' CSP. The
+       official snippet's inline window.va shim is omitted on purpose: it would
+       violate script-src 'self' (no 'unsafe-inline'), and it's only needed to
+       queue custom events fired before this script loads — not for pageviews. -->
+  <script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>

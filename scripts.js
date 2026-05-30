@@ -50,15 +50,15 @@ const PEOPLE_PREVIEW_MAX = 6;
 const CAST_PREVIEW_MAX   = 8;
 
 /* TMDB's `adult` boolean is only meant for hardcore pornography per their contrib rules.
+   NSFW filtering targets sexually explicit content (hentai, softcore, etc.).
    Softcore/explicit anime (Overflow et al.) often slip through with adult=false.
    Defence in depth: (1) without_keywords on discover, (2) client-side text scan on results.
    Extend NSFW_BLOCK_KEYWORDS with more TMDB keyword IDs to broaden filtering.  */
 const NSFW_BLOCK_KEYWORDS = '198385'; // hentai (movies + TV)
 const ADULT_TEXT_HINTS = ['hentai', 'eroge', 'pornograph', 'softcore', 'erotica', 'eroticism'];
-/* TMDB keyword IDs we consider explicit. Used by lazy /keywords enrichment so
+/* TMDB keyword IDs we consider sexually explicit. Used by lazy /keywords enrichment so
    cards like Overflow (TMDB adult=false, but tagged hentai/softcore/etc.) still
-   get the NSFW badge. Kept conservative: nothing here that has legitimate
-   non-explicit uses (e.g. "adult animation" = Rick and Morty, skipped). */
+   get flagged. Kept conservative: nothing here that has legitimate non-explicit uses. */
 const NSFW_KEYWORD_IDS = new Set([
   198385, // hentai
   155477, // softcore
@@ -866,10 +866,9 @@ function renderCard(item, idx, showRibbon) {
     <button type="button" class="card-quick-btn quick-${key}${on ? ' is-active' : ''}"
       data-coll-action="${key}" aria-label="${escapeAttr(label + ': ' + title)}" aria-pressed="${on ? 'true' : 'false'}" title="${escapeAttr(label)}">${ICONS[key]}</button>`;
   return `
-    <article class="card${nsfw ? ' is-nsfw' : ''}" data-id="${item.id}" data-type="${mt}" data-fav="${fav ? '1' : '0'}" data-status="${status}" data-rating="${userRating}" tabindex="0" role="button" aria-label="${escapeAttr((nsfw ? 'NSFW · ' : '') + title)}" style="--i:${Math.min(idx, 24)}">
+    <article class="card${nsfw ? ' is-nsfw' : ''}" data-id="${item.id}" data-type="${mt}" data-fav="${fav ? '1' : '0'}" data-status="${status}" data-rating="${userRating}" tabindex="0" role="button" aria-label="${escapeAttr(title)}" style="--i:${Math.min(idx, 24)}">
       <div class="card-poster">
         ${showRib ? `<div class="ribbon" aria-hidden="true"><span class="ribbon-tag">Top</span><span class="ribbon-num">${rank}</span></div>` : ''}
-        ${nsfw ? `<div class="nsfw-corner" aria-label="NSFW"><span>NSFW</span><span class="nsfw-corner-sub">18+</span></div>` : ''}
         ${posterImg(item.poster_path, title)}
         <div class="card-quick" aria-label="Quick add to collection">
           ${quickBtn('favourite', 'Favourite', fav)}
@@ -887,7 +886,7 @@ function renderCard(item, idx, showRibbon) {
           <span class="num">${yearOf(date)}</span>
           ${typeLabel ? `<span class="dot">·</span><span>${typeLabel}${animeTag}</span>` : ''}
           ${lang ? `<span class="card-lang" title="${escapeAttr(langName)}">${escapeHtml(lang)}</span>` : ''}
-          ${nsfw ? `<span class="card-adult">NSFW · 18+</span>` : ''}
+          ${nsfw && state.adultOnly ? `<span class="card-adult">NSFW · 18+</span>` : ''}
           ${genres ? `<span class="genre">${escapeHtml(genres)}</span>` : ''}
         </div>
       </div>
@@ -975,32 +974,24 @@ function enrichNsfwBadges(items) {
   });
 }
 
-/* Mutate a live .card in place: add the corner stamp, the inline pill, and the
-   is-nsfw class. Idempotent so re-renders are safe. Uses createElement /
-   textContent only (no innerHTML), so Trusted Types stays out of the way. */
+/* Mark card as NSFW (is-nsfw class). Only add the inline label if NSFW filter is on.
+   Idempotent so re-renders are safe. Uses createElement / textContent only. */
 function paintNsfwOnCard(item) {
   const mt = getMediaType(item);
   qsa(`.card[data-id="${item.id}"][data-type="${mt}"]`).forEach(card => {
     if (card.classList.contains('is-nsfw')) return;
     card.classList.add('is-nsfw');
-    const poster = card.querySelector('.card-poster');
-    if (poster && !poster.querySelector('.nsfw-corner')) {
-      const corner = document.createElement('div');
-      corner.className = 'nsfw-corner';
-      corner.setAttribute('aria-label', 'NSFW');
-      const a = document.createElement('span'); a.textContent = 'NSFW';
-      const b = document.createElement('span'); b.className = 'nsfw-corner-sub'; b.textContent = '18+';
-      corner.append(a, b);
-      poster.insertBefore(corner, poster.firstChild);
-    }
-    const meta = card.querySelector('.card-meta');
-    if (meta && !meta.querySelector('.card-adult')) {
-      const pill = document.createElement('span');
-      pill.className = 'card-adult';
-      pill.textContent = 'NSFW · 18+';
-      const genre = meta.querySelector('.genre');
-      if (genre) meta.insertBefore(pill, genre);
-      else meta.appendChild(pill);
+    // Only show inline label if NSFW filter is enabled
+    if (state.adultOnly) {
+      const meta = card.querySelector('.card-meta');
+      if (meta && !meta.querySelector('.card-adult')) {
+        const pill = document.createElement('span');
+        pill.className = 'card-adult';
+        pill.textContent = 'NSFW · 18+';
+        const genre = meta.querySelector('.genre');
+        if (genre) meta.insertBefore(pill, genre);
+        else meta.appendChild(pill);
+      }
     }
   });
 }
@@ -1694,8 +1685,12 @@ function renderDetailActions(item, trailer) {
       : `https://www.vidking.net/embed/tv/${item.id}/1/1?color=dc2626&autoPlay=true&nextEpisode=true&episodeSelector=true`;
     const watchLabel = mt === 'movie' ? 'Watch movie' : 'Watch show';
     const animeMode = isAnime(item);
+    const genreIds = item.genre_ids || (item.genres || []).map(g => g.id);
+    const animated = !animeMode && genreIds.includes(ANIME_GENRE_ID);
     if (animeMode) {
       parts.push(`<button type="button" class="btn btn-anime"><span class="anime-spark" aria-hidden="true">🏴‍☠️</span> Watch anime</button>`);
+    } else if (animated) {
+      parts.push(`<button type="button" class="btn btn-anime btn-muted" disabled title="Not detected as anime"><span class="anime-spark" aria-hidden="true">❓</span> Watch anime</button>`);
     }
     // Vidking button: greyed but still clickable when an anime primary is present.
     const pirateClass = animeMode ? 'btn btn-pirate btn-muted' : 'btn btn-pirate';
