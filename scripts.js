@@ -1568,13 +1568,13 @@ function showDetail(id, mt) {
     if (copyIdResetTimer) { clearTimeout(copyIdResetTimer); copyIdResetTimer = null; }
     els.copyIdBtn.classList.remove('is-copied');
     const label = qs('.copy-id-text', els.copyIdBtn);
-    if (label) label.textContent = 'Copy ID';
+    if (label) label.textContent = 'Copy ID (DEBUG)';
   }
   if (els.copySlugBtn) {
     if (copySlugResetTimer) { clearTimeout(copySlugResetTimer); copySlugResetTimer = null; }
     els.copySlugBtn.classList.remove('is-copied');
     const label = qs('.copy-id-text', els.copySlugBtn);
-    if (label) label.textContent = 'Copy slug';
+    if (label) label.textContent = 'Copy title';
   }
 
   showOverlay(els.detailOverlay);
@@ -1713,7 +1713,7 @@ function fetchProviders(mt, id, title, date, region) {
 
   // Low-data: omit the brand <img> tags; CSS already drops them via :root[data-low-data] rule.
   const buildLinks = (jwUrl) => {
-    const tmdbImg = state.lowData ? '' : `<img src="TMDB.png" alt="" width="20" height="20" loading="lazy" decoding="async"/>`;
+    const tmdbImg = state.lowData ? '' : `<img src="TMDB.ico" alt="" width="20" height="20" loading="lazy" decoding="async"/>`;
     const jwImg   = state.lowData ? '' : `<img src="justwatch.png" alt="" width="20" height="20" loading="lazy" decoding="async"/>`;
     const gImg    = state.lowData ? '' : `<img src="Google.png" alt="" width="20" height="20" loading="lazy" decoding="async"/> `;
     const bothIcons = state.lowData ? '' : `${tmdbImg} ${jwImg} `;
@@ -2062,7 +2062,7 @@ function flashCopySlug(text) {
   label.textContent = text;
   copySlugResetTimer = setTimeout(() => {
     els.copySlugBtn.classList.remove('is-copied');
-    label.textContent = 'Copy slug';
+    label.textContent = 'Copy title';
     copySlugResetTimer = null;
   }, 1600);
 }
@@ -2076,7 +2076,7 @@ function flashCopyId(text) {
   label.textContent = text;
   copyIdResetTimer = setTimeout(() => {
     els.copyIdBtn.classList.remove('is-copied');
-    label.textContent = 'Copy ID';
+    label.textContent = 'Copy ID (DEBUG)';
     copyIdResetTimer = null;
   }, 1600);
 }
