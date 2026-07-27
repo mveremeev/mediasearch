@@ -30,7 +30,6 @@
   --primary:       #dc2626;
   --primary-hi:    #ef4444;
   --primary-soft:  rgba(220, 38, 38, 0.18);
-  --accent-glow:   rgba(220, 38, 38, 0.42);
   --star:          #fbbf24;
 
   --radius-sm: 8px;
@@ -41,7 +40,6 @@
   --shadow-sm: 0 2px 8px rgba(0,0,0,0.25);
   --shadow:    0 12px 36px rgba(0,0,0,0.45);
   --shadow-lg: 0 24px 80px rgba(0,0,0,0.65);
-  --glow:      0 8px 24px var(--accent-glow);
 
   --ease:      cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
@@ -72,7 +70,6 @@
   --primary:       #b91c1c;
   --primary-hi:    #dc2626;
   --primary-soft:  rgba(185, 28, 28, 0.10);
-  --accent-glow:   rgba(185, 28, 28, 0.22);
   --star:          #d97706;
 
   --shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
@@ -149,12 +146,12 @@ a { color: inherit; text-decoration: none; }
   background: var(--primary);
   color: #fff;
   border-radius: 10px;
-  box-shadow: var(--glow);
+  box-shadow: var(--shadow-sm);
   transition: transform .35s var(--ease-out), box-shadow .35s var(--ease-out);
 }
 .brand:hover .brand-mark {
   transform: rotate(-6deg) scale(1.06);
-  box-shadow: 0 14px 32px var(--accent-glow);
+  box-shadow: var(--shadow);
 }
 .brand-text {
   font-family: var(--font-display);
@@ -199,7 +196,7 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid var(--primary);
   transition: background .2s var(--ease), border-color .2s var(--ease), transform .15s var(--ease), box-shadow .2s var(--ease);
 }
-.collection-btn:hover { background: var(--primary-hi); border-color: var(--primary-hi); box-shadow: 0 6px 18px var(--accent-glow); }
+.collection-btn:hover { background: var(--primary-hi); border-color: var(--primary-hi); box-shadow: var(--shadow-sm); }
 .collection-btn:active { transform: scale(0.94); }
 .collection-btn svg { display: block; }
 .count-badge {
@@ -210,7 +207,7 @@ a { color: inherit; text-decoration: none; }
   display: grid; place-items: center;
   background: var(--text-hi);
   color: var(--bg);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 10.5px;
   font-weight: 700;
   font-feature-settings: "tnum";
@@ -259,16 +256,6 @@ a { color: inherit; text-decoration: none; }
   text-shadow: 0 6px 18px rgba(0,0,0,0.35);
   position: relative;
   display: inline-block;
-}
-.hero-title::after {
-  content: "";
-  position: absolute;
-  bottom: 0.18em;
-  right: -0.25em;
-  width: 0.16em; height: 0.16em;
-  background: var(--primary);
-  border-radius: 999px;
-  box-shadow: 0 0 24px var(--accent-glow);
 }
 
 
@@ -443,7 +430,7 @@ body.is-searching .filters-disclaimer {
 .chip-label { font-weight: 500; }
 .chip-value {
   color: var(--text-mid);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 11.5px;
   letter-spacing: 0.01em;
   font-feature-settings: "tnum";
@@ -510,7 +497,7 @@ body.is-searching [data-discover-only] {
   gap: 6px;
   padding: 4px 10px;
   font-size: 11.5px;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   letter-spacing: 0.01em;
   background: transparent;
   color: var(--text-mid);
@@ -596,7 +583,7 @@ body.is-searching [data-discover-only] {
 .opt-tag {
   margin-left: auto;
   font-style: normal;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 10.5px;
   color: var(--text-low);
   background: var(--surface);
@@ -625,7 +612,7 @@ body.is-searching [data-discover-only] {
   color: var(--text-mid);
 }
 .range-row output {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 12px;
   color: var(--text-hi);
   text-align: right;
@@ -645,10 +632,10 @@ input[type="range"]::-webkit-slider-thumb {
   border: 2px solid var(--bg);
   border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 0 0 0 var(--accent-glow);
+  box-shadow: 0 0 0 0 var(--primary-soft);
   transition: box-shadow .2s var(--ease), transform .15s var(--ease-out);
 }
-input[type="range"]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 6px var(--accent-glow); transform: scale(1.1); }
+input[type="range"]::-webkit-slider-thumb:hover { box-shadow: 0 0 0 6px var(--primary-soft); transform: scale(1.1); }
 input[type="range"]::-moz-range-thumb {
   width: 14px; height: 14px;
   background: var(--primary);
@@ -686,7 +673,7 @@ input[type="range"]::-moz-range-thumb {
   gap: 6px;
   padding: 4px 10px;
   font-size: 11.5px;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   letter-spacing: 0.01em;
   background: var(--primary-soft);
   color: var(--primary-hi);
@@ -732,10 +719,9 @@ input[type="range"]::-moz-range-thumb {
   width: 4px; height: 0.7em;
   background: var(--primary);
   border-radius: 2px;
-  box-shadow: 0 0 12px var(--accent-glow);
 }
 .section-meta {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 12px;
   color: var(--text-mid);
   font-feature-settings: "tnum";
@@ -863,7 +849,7 @@ input[type="range"]::-moz-range-thumb {
   background: var(--primary);
   border-color: var(--primary);
   color: #fff;
-  box-shadow: 0 4px 12px var(--accent-glow);
+  box-shadow: var(--shadow-sm);
 }
 .card-quick-btn.quick-favourite.is-active svg { fill: currentColor; }
 
@@ -907,15 +893,14 @@ input[type="range"]::-moz-range-thumb {
   font-family: var(--font-body);
 }
 .card-meta .num {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-feature-settings: "tnum";
   font-size: 11px;
 }
-.card-meta .dot { color: var(--text-low); }
 .card-meta .star {
   color: var(--star);
   display: inline-flex; align-items: center; gap: 3px;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-feature-settings: "tnum";
 }
 .card-meta .genre {
@@ -976,7 +961,7 @@ input[type="range"]::-moz-range-thumb {
   justify-content: center;
   padding: 5px 2px 8px;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 84%, 0 100%);
-  box-shadow: 0 6px 14px var(--accent-glow);
+  box-shadow: var(--shadow-sm);
   animation: ribbon-in .55s var(--ease-out) both;
 }
 .ribbon-tag {
@@ -1095,6 +1080,16 @@ input[type="range"]::-moz-range-thumb {
 .spinner-lg { width: 28px; height: 28px; border-width: 3px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Async placeholders inside the overlays (cast, providers, person). These were
+   repeated as identical inline style attributes at five call sites. */
+.inline-loading {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--text-mid);
+  font-size: 13px;
+}
+.inline-note { color: var(--text-low); font-size: 13px; }
+.inline-loading:where(.is-padded), .inline-note:where(.is-padded) { padding: 14px 0; }
+
 /* Image-loading spinner - overlays every container while its inner <img> is
    still loading. Uses :has() to drop out the moment the img gets .loaded,
    then fades the spinner out so the reveal stays smooth. */
@@ -1184,9 +1179,14 @@ input[type="range"]::-moz-range-thumb {
 
 
 /* ---------- Overlay shell ---------- */
+/* Stacking order. Every overlay shares this shell, so without explicit layers
+   the paint order falls back to document order — which put #collection-overlay
+   (later in index.html) on top of #detail-overlay, hiding the title popup you
+   get by clicking a collection card. Layers are declared by which overlay can
+   open which: collection → detail → actor/cast → info/adblock. */
 .overlay {
   position: fixed; inset: 0;
-  z-index: 100;
+  z-index: var(--overlay-z, 100);
   display: none;
   background: rgba(0, 0, 0, 0.86);
   align-items: center;
@@ -1196,6 +1196,13 @@ input[type="range"]::-moz-range-thumb {
 }
 .overlay.active { display: flex; }
 @keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+
+#collection-overlay { --overlay-z: 100; }
+#detail-overlay     { --overlay-z: 110; }
+#actor-overlay,
+#cast-grid-overlay  { --overlay-z: 120; }
+#info-overlay,
+#adblock-overlay    { --overlay-z: 130; }
 
 .overlay-card {
   position: relative;
@@ -1244,7 +1251,7 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 16px;
   background: linear-gradient(135deg, var(--primary), #ef4444);
   color: #fff;
-  box-shadow: 0 10px 28px var(--accent-glow);
+  box-shadow: var(--shadow-sm);
 }
 .welcome-title {
   font-family: var(--font-display);
@@ -1275,10 +1282,10 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 600;
   padding: 12px 18px;
   border-radius: 999px;
-  box-shadow: 0 6px 18px var(--accent-glow);
+  box-shadow: var(--shadow-sm);
   transition: transform .15s var(--ease), box-shadow .15s var(--ease);
 }
-.welcome-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px var(--accent-glow); }
+.welcome-primary:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
 .welcome-primary:active { transform: translateY(0); }
 .welcome-secondary {
   background: transparent;
@@ -1384,7 +1391,7 @@ input[type="range"]::-moz-range-thumb {
 }
 .detail-meta-row {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-feature-settings: "tnum";
   font-size: 12px;
   color: var(--text-mid);
@@ -1392,7 +1399,6 @@ input[type="range"]::-moz-range-thumb {
 }
 .detail-meta-row .star { color: var(--star); }
 .detail-meta-row .vote-count { color: var(--text-low); }
-.detail-meta-row .dot { color: var(--text-low); }
 .detail-meta-row .badge {
   background: var(--surface-hi);
   border: 1px solid var(--border);
@@ -1408,7 +1414,7 @@ input[type="range"]::-moz-range-thumb {
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset, 0 4px 14px rgba(220, 38, 38, 0.45);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
 }
 
 .detail-overview {
@@ -1449,7 +1455,7 @@ input[type="range"]::-moz-range-thumb {
   color: #fff;
   border-color: var(--primary);
 }
-.btn-red:hover { background: var(--primary-hi); box-shadow: var(--glow); }
+.btn-red:hover { background: var(--primary-hi); box-shadow: var(--shadow-sm); }
 /* "Watch movie/show" button - secondary action paired with the trailer.
    Darker, slightly inset against the trailer's red so they don't compete. */
 .btn-pirate {
@@ -1469,7 +1475,7 @@ input[type="range"]::-moz-range-thumb {
 }
 .btn-pirate:hover .pirate-flag { transform: rotate(-8deg) scale(1.1); }
 
-/* "Watch anime" — primary action for anime titles. Matches the vidking
+/* "Watch anime" — primary action for anime titles. Matches the watch
    button's visual style; hierarchy comes from the paired button being muted. */
 .btn-anime {
   background: var(--bg-3);
@@ -1490,7 +1496,7 @@ input[type="range"]::-moz-range-thumb {
 }
 .btn-anime:hover .anime-spark { transform: rotate(-8deg) scale(1.1); }
 
-/* Muted variant: applied to the vidking button when the anime primary is shown.
+/* Muted variant: applied to the watch button when the anime primary is shown.
    Greyed out but still clickable for users who want to bypass the anime path. */
 .btn-pirate.btn-muted {
   opacity: 0.5;
@@ -1652,7 +1658,7 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
   gap: 6px;
   margin: -10px 0 18px;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-feature-settings: "tnum";
 }
 .detail-langs[hidden] { display: none; }
@@ -1689,6 +1695,8 @@ input[type="range"]::-moz-range-thumb {
   transition: background .15s, color .15s, border-color .15s;
 }
 .lang-chip .lang-iso {
+  /* Mono is reserved for literal codes; the language name beside it is prose. */
+  font-family: var(--font-mono);
   font-weight: 700;
   font-size: 9px;
   letter-spacing: 0.08em;
@@ -1700,23 +1708,14 @@ input[type="range"]::-moz-range-thumb {
   border-color: color-mix(in oklab, var(--primary) 45%, var(--border-hi));
   background: color-mix(in oklab, var(--primary) 7%, var(--surface));
 }
-.lang-chip.is-original .lang-iso { color: var(--primary-hi); }
-.lang-chip.is-original::before {
-  content: "";
-  width: 4px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--primary);
-  box-shadow: 0 0 5px var(--accent-glow);
-  flex-shrink: 0;
-}
+.lang-chip.is-original .lang-iso { color: var(--text); }
 .detail-langs-more {
   padding: 2px 9px;
   border-radius: 999px;
   background: transparent;
   border: 1px dashed var(--border-hi);
   color: var(--text-mid);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 10px;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -1743,7 +1742,7 @@ input[type="range"]::-moz-range-thumb {
   border: 2px solid var(--primary);
   background: var(--bg-3);
   flex: 0 0 auto;
-  box-shadow: var(--glow);
+  box-shadow: var(--shadow-sm);
 }
 .actor-photo-lg img { width: 100%; height: 100%; object-fit: cover; }
 .actor-name {
@@ -1855,7 +1854,8 @@ input[type="range"]::-moz-range-thumb {
   margin-top: 4px;
   font-size: 12px;
   color: var(--text-mid);
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
+  font-feature-settings: "tnum";
 }
 @media (max-width: 520px) {
   .credit-grid { grid-template-columns: 1fr; }
@@ -1949,7 +1949,7 @@ input[type="range"]::-moz-range-thumb {
 .info-card .lang-list .lang-tag {
   margin-left: auto;
   padding: 2px 8px;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 9.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1973,7 +1973,7 @@ input[type="range"]::-moz-range-thumb {
   align-items: center;
   gap: 7px;
   padding: 6px 12px;
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -2013,7 +2013,7 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 16px;
   background: linear-gradient(135deg, var(--primary), #ef4444);
   color: #fff;
-  box-shadow: 0 8px 22px var(--accent-glow);
+  box-shadow: var(--shadow-sm);
 }
 .adblock-title {
   font-weight: 500;
@@ -2157,7 +2157,6 @@ input[type="range"]::-moz-range-thumb {
   width: 4px; height: 0.7em;
   background: var(--primary);
   border-radius: 2px;
-  box-shadow: 0 0 12px var(--accent-glow);
 }
 .collection-io { display: flex; gap: 8px; flex-shrink: 0; }
 .io-btn {
@@ -2205,7 +2204,7 @@ input[type="range"]::-moz-range-thumb {
   border-color: var(--primary);
 }
 .coll-tab-count {
-  font-family: var(--font-mono);
+  font-family: var(--font-body);
   font-size: 10.5px;
   padding: 1px 6px;
   border-radius: 999px;

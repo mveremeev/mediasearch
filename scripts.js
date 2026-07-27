@@ -168,6 +168,22 @@ const SORT_LABELS = {
   'revenue.desc': 'Revenue',
 };
 const DEFAULT_SORT = 'popularity.desc';
+const TYPE_LABELS = { all:'All', movie:'Movies', tv:'Shows', anime:'Anime' };
+
+/* Which discover endpoints each type hits. Anime is a genre+language filter
+   applied on top of both endpoints (see buildDiscoverParams), not an endpoint
+   of its own. */
+const DISCOVER_TYPES = { movie:['movie'], tv:['tv'], all:['movie','tv'], anime:['movie','tv'] };
+
+/* Client-side comparators for the interleaved movie+tv discover results, keyed
+   by the same sort_by value we send to TMDB. */
+const SORT_COMPARATORS = {
+  'vote_average.desc':         (a,b) => (b.vote_average || 0) - (a.vote_average || 0),
+  'primary_release_date.desc': (a,b) => dateOf(b).localeCompare(dateOf(a)),
+  'primary_release_date.asc':  (a,b) => dateOf(a).localeCompare(dateOf(b)),
+  'revenue.desc':              (a,b) => (b.revenue || 0) - (a.revenue || 0),
+  'popularity.desc':           (a,b) => (b.popularity || 0) - (a.popularity || 0),
+};
 
 const NO_POSTER  = 'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" viewBox="0 0 200 300"><rect width="100%" height="100%" fill="#1a1c22"/><text x="50%" y="50%" fill="#52525b" font-size="14" text-anchor="middle" font-family="sans-serif">No image</text></svg>');
 const NO_PROFILE = 'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120"><rect width="100%" height="100%" fill="#1a1c22"/><circle cx="60" cy="48" r="18" fill="#3f3f46"/><path d="M30 110c0-22 18-36 30-36s30 14 30 36" fill="#3f3f46"/></svg>');
@@ -334,13 +350,31 @@ function profileImg(path, alt) {
 }
 function providerImg(path, name) {
   // Provider logos: in low-data, CSS shows data-name text fallback via ::before.
-  if (state.lowData) return '';
-  if (!path) return '';
+  if (state.lowData || !path) return '';
   return `<img src="${IMG}/w92${path}" alt="${escapeAttr(name)}" width="92" height="92" loading="lazy" decoding="async">`;
 }
 
 const formatVotes = (n) => n >= 1000 ? (n/1000).toFixed(n>=10000 ? 0 : 1)+'k' : String(n||0);
 const yearOf = (date) => (date && date.length >= 4) ? date.slice(0,4) : '-';
+/* Movies carry release_date, shows first_air_date; nothing reads them apart. */
+const dateOf = (item) => item.release_date || item.first_air_date || '';
+
+/* Shared by the JustWatch fallback URL and the miruro anime search. Diacritics
+   are folded and apostrophes dropped outright (so "Don't Look Up" becomes
+   dont-look-up, matching how both sites build their slugs) before every other
+   run of non-alphanumerics collapses to a single dash. */
+const slugify = (str) => (str || '').toLowerCase()
+  .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+  .replace(/['‘’ʼ`]/g, '')
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-+|-+$/g, '');
+
+/* Inline async placeholders inside the overlays. Styling lives in styles.css
+   (.inline-loading / .inline-note) rather than repeated style attributes. */
+const loadingHtml = (text, padded = false) =>
+  `<div class="inline-loading${padded ? ' is-padded' : ''}"><span class="spinner"></span>${escapeHtml(text)}</div>`;
+const noteHtml = (text, padded = false) =>
+  `<p class="inline-note${padded ? ' is-padded' : ''}">${escapeHtml(text)}</p>`;
 
 const getMediaType = (item) => item.media_type || (item.title ? 'movie' : 'tv');
 const getTypeLabel = (mt) => mt === 'movie' ? 'Movie' : mt === 'tv' ? 'Show' : '';
@@ -360,7 +394,7 @@ const isExplicit = (item) => !!item.adult || hasNsfwText(item) || hasNsfwKeyword
 const getGenreLabel = (genreIds, mt) => {
   if (!genreIds?.length) return '';
   const map = mt === 'movie' ? GENRE_MOVIE : GENRE_TV;
-  return genreIds.map(id => map[id]).filter(Boolean).slice(0, 2).join(' · ');
+  return genreIds.map(id => map[id]).filter(Boolean).slice(0, 2).join(', ');
 };
 
 // Year slider 0–100 → 4 segments: 0=All, 0–25 → 0–1800, 25–50 → 1800–1900, 50–75 → 1900–2000, 75–100 → 2000–now
@@ -425,20 +459,62 @@ function loadPrefs() {
    knowing about each other. */
 const COLLECTION_KEY  = 'msearch-collection-v2';
 const COLLECTION_VER  = 2;
-const STATUSES        = ['want', 'watching', 'watched'];
-const STATUS_LABELS   = { want:'Want to watch', watching:'Watching', watched:'Watched' };
 const collectionKey   = (id, mt) => `${mt}:${id}`;
 
+/* The six collection actions in display order. `field` names the part of an
+   entry the action writes. Because status and rating store the action key
+   itself ('want', 'liked', …), reading and writing both collapse to a lookup —
+   see isActionActive / applyCollectionAction. Single source of truth for the
+   card hover row, the detail action row, the collection tabs, and state sync;
+   these were four hand-maintained copies of the same list. */
+const COLLECTION_ACTIONS = [
+  { key:'favourite', label:'Favourite',     field:'favourite' },
+  { key:'want',      label:'Want to watch', field:'status'    },
+  { key:'watching',  label:'Watching',      field:'status'    },
+  { key:'watched',   label:'Watched',       field:'status'    },
+  { key:'liked',     label:'Liked',         field:'rating'    },
+  { key:'disliked',  label:'Disliked',      field:'rating'    },
+];
+const ACTION_FIELD = Object.fromEntries(COLLECTION_ACTIONS.map(a => [a.key, a.field]));
+
+/* Is `key` currently switched on for this entry? Accepts a bare {} for items
+   that aren't in the collection at all. */
+function isActionActive(entry, key) {
+  if (ACTION_FIELD[key] === 'favourite') return !!entry.favourite;
+  return entry[ACTION_FIELD[key]] === key;
+}
+/* Apply `key` to an item. Every mutator below toggles when re-applied, so this
+   doubles as the "unset" path. */
+function applyCollectionAction(item, key) {
+  const field = ACTION_FIELD[key];
+  if (field === 'favourite') return toggleFavourite(item);
+  if (field === 'rating')    return setRating(item, key);
+  return setEntryStatus(item, key);
+}
+
+/* The parsed collection is memoised. getEntry() is called once per card, so
+   without this a 40-card page re-read and re-parsed the whole store 40 times
+   (~3 MB of JSON for a 400-item collection) — and every heart click did it
+   again via refreshCardStates. localStorage is the durable copy; this is the
+   working one.
+
+   Contract: loadCollection() hands back the *live* cached object, so anything
+   that mutates it must call saveCollection() to persist and notify. Every
+   mutator below does. */
+let collectionCache = null;
 function loadCollection() {
+  if (collectionCache) return collectionCache;
+  collectionCache = { version: COLLECTION_VER, items: {} };
   try {
-    const raw = localStorage.getItem(COLLECTION_KEY);
-    if (!raw) return { version: COLLECTION_VER, items: {} };
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || !parsed.items) return { version: COLLECTION_VER, items: {} };
-    return { version: parsed.version || COLLECTION_VER, items: parsed.items };
-  } catch { return { version: COLLECTION_VER, items: {} }; }
+    const parsed = JSON.parse(localStorage.getItem(COLLECTION_KEY) || 'null');
+    if (parsed && typeof parsed === 'object' && parsed.items) {
+      collectionCache = { version: parsed.version || COLLECTION_VER, items: parsed.items };
+    }
+  } catch { /* corrupt or unavailable — fall back to the empty collection */ }
+  return collectionCache;
 }
 function saveCollection(col) {
+  collectionCache = col;
   try { localStorage.setItem(COLLECTION_KEY, JSON.stringify(col)); } catch {}
   document.dispatchEvent(new CustomEvent('collection:change'));
 }
@@ -447,14 +523,12 @@ function getEntry(id, mt) {
 }
 /* Build a stub from a TMDB item (or merge over an existing entry). */
 function entryFromItem(item) {
-  const mt = getMediaType(item);
-  const date = item.release_date || item.first_air_date || '';
   return {
     id: item.id,
-    mediaType: mt,
+    mediaType: getMediaType(item),
     title: item.title || item.name || '',
     posterPath: item.poster_path || '',
-    year: yearOf(date),
+    year: yearOf(dateOf(item)),
     favourite: false,
     status: null,
     rating: null,
@@ -462,6 +536,17 @@ function entryFromItem(item) {
     updatedAt: Date.now(),
   };
 }
+/* The inverse: a stored entry rebuilt as a sparse TMDB-shaped item, so
+   renderCard and showDetail can consume collection data unchanged. */
+const itemFromEntry = (e) => ({
+  id: e.id,
+  media_type: e.mediaType,
+  title: e.title,
+  name: e.title,
+  poster_path: e.posterPath,
+  release_date:   e.mediaType === 'movie' && e.year ? `${e.year}-01-01` : '',
+  first_air_date: e.mediaType === 'tv'    && e.year ? `${e.year}-01-01` : '',
+});
 function upsertEntry(item, patch) {
   const col = loadCollection();
   const key = collectionKey(item.id, getMediaType(item));
@@ -472,7 +557,7 @@ function upsertEntry(item, patch) {
     ...base,
     title: base.title || item.title || item.name || '',
     posterPath: base.posterPath || item.poster_path || '',
-    year: base.year || yearOf(item.release_date || item.first_air_date || ''),
+    year: base.year || yearOf(dateOf(item)),
   };
   const next = { ...enriched, ...patch, updatedAt: Date.now() };
   // If the entry no longer represents anything, drop it.
@@ -510,12 +595,9 @@ function toggleFavourite(item) {
 }
 function getCounts() {
   const items = Object.values(loadCollection().items);
-  const c = { favourite:0, want:0, watching:0, watched:0, liked:0, disliked:0, total: items.length };
-  items.forEach(e => {
-    if (e.favourite) c.favourite++;
-    if (e.status && c[e.status] != null) c[e.status]++;
-    if (e.rating && c[e.rating] != null) c[e.rating]++;
-  });
+  const c = { total: items.length };
+  COLLECTION_ACTIONS.forEach(a => { c[a.key] = 0; });
+  items.forEach(e => COLLECTION_ACTIONS.forEach(a => { if (isActionActive(e, a.key)) c[a.key]++; }));
   return c;
 }
 /* Merge an imported collection into the current one. Per-field "newest wins" by
@@ -723,60 +805,43 @@ function runSearch(append) {
     return arr;
   }).catch(() => []);
 
-  Promise.all([personPromise, mediaPromise]).then(([people, media]) => {
-    if (append) {
-      state.cache.push(...media);
-    } else {
-      state.cache = media;
-      state.personCache = people;
-    }
-    state.exhausted = media.length === 0;
-    state.loading = false;
-    renderResults({ append });
-  });
+  Promise.all([personPromise, mediaPromise])
+    .then(([people, media]) => commitResults(media, people, append));
 }
 
 function runDiscover(append) {
-  const t = state.type;
-  // Anime fetches both movie+tv discover unless type narrows
-  let urls = [];
-  if (t === 'movie' || (t === 'anime' && false)) urls.push(`${TMDB}/discover/movie?${buildDiscoverParams('movie')}`);
-  else if (t === 'tv') urls.push(`${TMDB}/discover/tv?${buildDiscoverParams('tv')}`);
-  else if (t === 'all' || t === 'anime') {
-    urls.push(`${TMDB}/discover/movie?${buildDiscoverParams('movie')}`);
-    urls.push(`${TMDB}/discover/tv?${buildDiscoverParams('tv')}`);
-  } else {
-    urls.push(`${TMDB}/discover/movie?${buildDiscoverParams('movie')}`);
-  }
-
-  Promise.all(urls.map(u => fetch(u).then(r => r.json()).then(d => (d.results || []).map(m => ({
-    ...m,
-    media_type: u.includes('/discover/movie') ? 'movie' : 'tv'
-  }))).catch(() => []))).then(results => {
-    let media = results.flat();
-    // Sort interleaved results by selected sort to keep a sensible order
-    media = sortLocally(media);
+  const mediaTypes = DISCOVER_TYPES[state.type] || DISCOVER_TYPES.all;
+  Promise.all(mediaTypes.map(mt =>
+    fetch(`${TMDB}/discover/${mt}?${buildDiscoverParams(mt)}`)
+      .then(r => r.json())
+      .then(d => (d.results || []).map(m => ({ ...m, media_type: mt })))
+      .catch(() => [])
+  )).then(results => {
+    // Interleaved movie+tv needs re-sorting; TMDB only ordered each half.
+    let media = sortLocally(results.flat());
     // Belt-and-braces: client-side post-filter even with without_keywords on,
     // since TMDB's keyword tagging is incomplete.
     if (!state.adultOnly) media = media.filter(x => !isExplicit(x));
-    if (append) state.cache.push(...media);
-    else        { state.cache = media; state.personCache = []; }
-    state.exhausted = media.length === 0;
-    state.loading = false;
-    renderResults({ append });
+    commitResults(media, [], append);
   });
 }
 
-function sortLocally(arr) {
-  const s = state.sort;
-  const dt = (it) => it.release_date || it.first_air_date || '';
-  if (s === 'vote_average.desc')          arr.sort((a,b)=>(b.vote_average||0)-(a.vote_average||0));
-  else if (s === 'primary_release_date.desc') arr.sort((a,b)=>dt(b).localeCompare(dt(a)));
-  else if (s === 'primary_release_date.asc')  arr.sort((a,b)=>dt(a).localeCompare(dt(b)));
-  else if (s === 'revenue.desc')          arr.sort((a,b)=>(b.revenue||0)-(a.revenue||0));
-  else                                     arr.sort((a,b)=>(b.popularity||0)-(a.popularity||0));
-  return arr;
+/* Shared tail for both fetch paths: land the results, update the paging flags,
+   repaint. `people` is ignored when appending — the strip is first-page only. */
+function commitResults(media, people, append) {
+  if (append) {
+    state.cache.push(...media);
+  } else {
+    state.cache = media;
+    state.personCache = people;
+  }
+  state.exhausted = media.length === 0;
+  state.loading = false;
+  renderResults({ append });
 }
+
+const sortLocally = (arr) =>
+  arr.sort(SORT_COMPARATORS[state.sort] || SORT_COMPARATORS[DEFAULT_SORT]);
 
 
 /* ---------- 7. RENDER ---------- */
@@ -794,7 +859,7 @@ function setStatus(kind) {
     els.gridStatus.removeAttribute('data-empty');
     els.gridStatus.innerHTML = '';
   }
-  if (typeof refreshLoadMore === 'function') refreshLoadMore();
+  refreshLoadMore();
 }
 
 function renderResults({ append = false } = {}) {
@@ -803,8 +868,7 @@ function renderResults({ append = false } = {}) {
     els.sectionTitle.textContent = `Results for "${state.query}"`;
     els.sectionMeta.textContent = state.cache.length ? `${state.cache.length}+ titles` : '';
   } else {
-    const labels = { all:'Discover', movie:'Movies', tv:'Shows', anime:'Anime' };
-    els.sectionTitle.textContent = labels[state.type] || 'Discover';
+    els.sectionTitle.textContent = state.type === 'all' ? 'Discover' : (TYPE_LABELS[state.type] || 'Discover');
     els.sectionMeta.textContent = state.sort !== DEFAULT_SORT ? SORT_LABELS[state.sort] : '';
   }
 
@@ -827,23 +891,24 @@ function renderResults({ append = false } = {}) {
   const newItems = state.cache.slice(startIdx);
   const html = newItems.map((it, i) => renderCard(it, startIdx + i, showRibbon)).join('');
   els.grid.insertAdjacentHTML('beforeend', html);
-  attachImageLoaders(els.grid);
+  /* Bind only the cards just inserted. Re-walking the whole grid made every
+     append O(total), so infinite scroll degraded quadratically. */
+  const added = [];
+  for (let i = startIdx; i < els.grid.children.length; i++) added.push(els.grid.children[i]);
+  attachImageLoaders(added);
   enrichNsfwBadges(newItems);
 
   if (!append) attachImageLoaders(els.peopleGrid);
 
-  // Status
-  if (state.cache.length === 0) setStatus('empty');
-  else if (state.exhausted)     setStatus('');
-  else                          setStatus('');
+  setStatus(state.cache.length === 0 ? 'empty' : '');
 }
 
 function renderCard(item, idx, showRibbon) {
   const title = item.title || item.name || '';
-  const date  = item.release_date || item.first_air_date || '';
+  const date  = dateOf(item);
   const mt    = getMediaType(item);
   const typeLabel = getTypeLabel(mt);
-  const animeTag  = isAnime(item) ? ' · Anime' : '';
+  const animeTag  = isAnime(item) ? '<span>Anime</span>' : '';
   const genres = getGenreLabel(item.genre_ids, mt);
   const rating = item.vote_average || 0;
   const showRib = showRibbon && idx < 10;
@@ -862,31 +927,27 @@ function renderCard(item, idx, showRibbon) {
   const nsfw = isExplicit(item);
   /* aria-label includes the title so axe's "visible text in accessible name"
      check passes when the visible adjacent text is the card title. */
-  const quickBtn = (key, label, on) => `
+  const quickBtns = COLLECTION_ACTIONS.map(({ key, label }) => {
+    const on = isActionActive(entry, key);
+    return `
     <button type="button" class="card-quick-btn quick-${key}${on ? ' is-active' : ''}"
       data-coll-action="${key}" aria-label="${escapeAttr(label + ': ' + title)}" aria-pressed="${on ? 'true' : 'false'}" title="${escapeAttr(label)}">${ICONS[key]}</button>`;
+  }).join('');
   return `
     <article class="card${nsfw ? ' is-nsfw' : ''}" data-id="${item.id}" data-type="${mt}" data-fav="${fav ? '1' : '0'}" data-status="${status}" data-rating="${userRating}" tabindex="0" role="button" aria-label="${escapeAttr(title)}" style="--i:${Math.min(idx, 24)}">
       <div class="card-poster">
         ${showRib ? `<div class="ribbon" aria-hidden="true"><span class="ribbon-tag">Top</span><span class="ribbon-num">${rank}</span></div>` : ''}
         ${posterImg(item.poster_path, title)}
-        <div class="card-quick" aria-label="Quick add to collection">
-          ${quickBtn('favourite', 'Favourite', fav)}
-          ${quickBtn('want', 'Want to watch', status === 'want')}
-          ${quickBtn('watching', 'Watching', status === 'watching')}
-          ${quickBtn('watched', 'Watched', status === 'watched')}
-          ${quickBtn('liked', 'Liked', userRating === 'liked')}
-          ${quickBtn('disliked', 'Disliked', userRating === 'disliked')}
-        </div>
+        <div class="card-quick" aria-label="Quick add to collection">${quickBtns}</div>
       </div>
       <div class="card-info">
         <h3 class="card-title">${escapeHtml(title)}</h3>
         <div class="card-meta">
-          ${rating > 0 ? `<span class="star">★ ${rating.toFixed(1)}</span><span class="dot">·</span>` : ''}
+          ${rating > 0 ? `<span class="star">★ ${rating.toFixed(1)}</span>` : ''}
           <span class="num">${yearOf(date)}</span>
-          ${typeLabel ? `<span class="dot">·</span><span>${typeLabel}${animeTag}</span>` : ''}
+          ${typeLabel ? `<span>${typeLabel}</span>${animeTag}` : ''}
           ${lang ? `<span class="card-lang" title="${escapeAttr(langName)}">${escapeHtml(lang)}</span>` : ''}
-          ${nsfw && state.adultOnly ? `<span class="card-adult">NSFW · 18+</span>` : ''}
+          ${nsfw && state.adultOnly ? `<span class="card-adult">NSFW 18+</span>` : ''}
           ${genres ? `<span class="genre">${escapeHtml(genres)}</span>` : ''}
         </div>
       </div>
@@ -903,9 +964,12 @@ function renderPerson(p, role='', idx=0) {
     </article>`;
 }
 
+/* Accepts a container or a list of freshly-inserted elements, so callers that
+   only added a page of cards don't pay to re-scan the ones already bound. */
 function attachImageLoaders(root) {
   if (!root) return;
-  qsa('img', root).forEach(img => {
+  const imgs = Array.isArray(root) ? root.flatMap(el => qsa('img', el)) : qsa('img', root);
+  imgs.forEach(img => {
     /* Key the bind by the current src, not a boolean - the detail overlay
        reuses the same <img> elements across opens, so a boolean flag would
        prevent re-binding when src changes, leaving the new image stuck at
@@ -944,12 +1008,16 @@ function attachImageLoaders(root) {
    and stamp the badge onto the live card if it comes back NSFW. Only runs for
    plausible candidates (anime — Japanese Animation) to keep request volume sane;
    that's the corner of the catalog where soft-NSFW slips through. */
+/* Run work once the browser is idle, so it never competes with the paint that
+   just happened. Falls back to a timeout where requestIdleCallback is missing. */
+const onIdle = (fn) => (window.requestIdleCallback || ((f) => setTimeout(f, 200)))(fn);
+
 function enrichNsfwBadges(items) {
   if (!Array.isArray(items) || !items.length) return;
+  const pending = [];
   items.forEach(item => {
     if (!item || !item.id) return;
-    const mt = getMediaType(item);
-    const key = `${mt}:${item.id}`;
+    const key = collectionKey(item.id, getMediaType(item));
     // Already known via text/adult, or already keyword-cached → just paint.
     if (hasNsfwText(item) || item.adult || nsfwKeywordCache.get(key) === true) {
       paintNsfwOnCard(item);
@@ -961,6 +1029,22 @@ function enrichNsfwBadges(items) {
     // rest in discover, and search-mode hentai-tagged non-anime is vanishingly rare.
     if (!isAnime(item)) return;
     nsfwLookupInFlight.add(key);
+    pending.push([key, item]);
+  });
+  if (!pending.length) return;
+  /* These are cosmetic badges, so they wait for idle and go out a few at a
+     time. Firing a whole page at once put ~40 requests ahead of the poster
+     images in the connection queue for no visible benefit. */
+  onIdle(() => runNsfwLookups(pending));
+}
+
+const NSFW_LOOKUP_CONCURRENCY = 4;
+function runNsfwLookups(queue) {
+  let i = 0;
+  const next = () => {
+    if (i >= queue.length) return;
+    const [key, item] = queue[i++];
+    const mt = getMediaType(item);
     fetch(`${TMDB}/${mt}/${item.id}/keywords?api_key=${API_KEY}`)
       .then(r => r.json())
       .then(d => {
@@ -970,8 +1054,9 @@ function enrichNsfwBadges(items) {
         if (flagged) paintNsfwOnCard(item);
       })
       .catch(() => {})
-      .finally(() => nsfwLookupInFlight.delete(key));
-  });
+      .finally(() => { nsfwLookupInFlight.delete(key); next(); });
+  };
+  for (let n = 0; n < Math.min(NSFW_LOOKUP_CONCURRENCY, queue.length); n++) next();
 }
 
 /* Mark card as NSFW (is-nsfw class). Only add the inline label if NSFW filter is on.
@@ -979,20 +1064,14 @@ function enrichNsfwBadges(items) {
 function paintNsfwOnCard(item) {
   const mt = getMediaType(item);
   qsa(`.card[data-id="${item.id}"][data-type="${mt}"]`).forEach(card => {
-    if (card.classList.contains('is-nsfw')) return;
     card.classList.add('is-nsfw');
-    // Only show inline label if NSFW filter is enabled
-    if (state.adultOnly) {
-      const meta = card.querySelector('.card-meta');
-      if (meta && !meta.querySelector('.card-adult')) {
-        const pill = document.createElement('span');
-        pill.className = 'card-adult';
-        pill.textContent = 'NSFW · 18+';
-        const genre = meta.querySelector('.genre');
-        if (genre) meta.insertBefore(pill, genre);
-        else meta.appendChild(pill);
-      }
-    }
+    if (!state.adultOnly) return;           // inline label only with the NSFW filter on
+    const meta = qs('.card-meta', card);
+    if (!meta || qs('.card-adult', meta)) return;
+    const pill = document.createElement('span');
+    pill.className = 'card-adult';
+    pill.textContent = 'NSFW 18+';
+    meta.insertBefore(pill, qs('.genre', meta));  // a null ref appends
   });
 }
 
@@ -1003,11 +1082,8 @@ function paintNsfwOnCard(item) {
 function findItem(id, mt) {
   const fromCache = state.cache.find(x => x.id === id && getMediaType(x) === mt);
   if (fromCache) return fromCache;
-  const fromOverride = state.detailOverrides[`${mt}:${id}`];
-  if (fromOverride) return fromOverride;
   const e = getEntry(id, mt);
-  if (e) return { id: e.id, media_type: e.mediaType, title: e.title, name: e.title, poster_path: e.posterPath };
-  return null;
+  return state.detailOverrides[collectionKey(id, mt)] || (e ? itemFromEntry(e) : null);
 }
 
 /* Click handler for any .card-quick-btn inside a card. Returns true if it
@@ -1022,11 +1098,7 @@ function handleCollectionActionClick(e) {
   const id = Number(card.dataset.id);
   const mt = card.dataset.type;
   const item = findItem(id, mt);
-  if (!item) return true;
-  const action = btn.dataset.collAction;
-  if (action === 'favourite') toggleFavourite(item);
-  else if (action === 'liked' || action === 'disliked') setRating(item, action);
-  else                        setEntryStatus(item, action);
+  if (item) applyCollectionAction(item, btn.dataset.collAction);
   return true;
 }
 
@@ -1034,21 +1106,12 @@ function handleCollectionActionClick(e) {
    collection mutation. Cheaper than re-rendering the whole grid. */
 function refreshCardStates(root = document) {
   qsa('.card', root).forEach(card => {
-    const id = Number(card.dataset.id);
-    const mt = card.dataset.type;
-    const entry = getEntry(id, mt) || {};
-    const fav = !!entry.favourite;
-    const status = entry.status || '';
-    const rating = entry.rating || '';
-    card.dataset.fav = fav ? '1' : '0';
-    card.dataset.status = status;
-    card.dataset.rating = rating;
+    const entry = getEntry(Number(card.dataset.id), card.dataset.type) || {};
+    card.dataset.fav    = entry.favourite ? '1' : '0';
+    card.dataset.status = entry.status || '';
+    card.dataset.rating = entry.rating || '';
     qsa('.card-quick-btn', card).forEach(btn => {
-      const a = btn.dataset.collAction;
-      let on;
-      if (a === 'favourite') on = fav;
-      else if (a === 'liked' || a === 'disliked') on = rating === a;
-      else on = status === a;
+      const on = isActionActive(entry, btn.dataset.collAction);
       btn.classList.toggle('is-active', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
@@ -1059,10 +1122,7 @@ function refreshCardStates(root = document) {
 /* ---------- 8. PILLS ---------- */
 function updatePills() {
   const pills = [];
-  if (state.type !== 'all') {
-    const labels = { movie:'Movies', tv:'Shows', anime:'Anime' };
-    pills.push({ key:'type', label:`Type: ${labels[state.type]}` });
-  }
+  if (state.type !== 'all') pills.push({ key:'type', label:`Type: ${TYPE_LABELS[state.type]}` });
   if (!state.servicesAll && state.serviceVals.length) {
     state.serviceVals.forEach(v => {
       const svc = SERVICES.find(s => s.v === v);
@@ -1121,27 +1181,33 @@ function clearOnePill(key) {
   onFilterChange();
 }
 
+/* Every filter chip presents the same three surfaces: an optional radio group,
+   the current value shown in its summary, and an "active" outline once it
+   differs from the default. Six call sites used to spell this out by hand
+   (and would throw if a selector ever missed). */
+function syncChip(chip, { radios, value, label, active }) {
+  if (radios) qsa(`input[name="${radios}"]`).forEach(r => { r.checked = (r.value === value); });
+  const valueEl = qs(`[data-value-for="${chip}"]`);
+  if (valueEl) valueEl.textContent = label;
+  const chipEl = qs(`.chip[data-chip="${chip}"]`);
+  if (chipEl) chipEl.classList.toggle('chip-active', active);
+}
+
 function setType(t) {
   state.type = t;
-  qsa('input[name="media-type"]').forEach(r => { r.checked = (r.value === t); });
-  qs('[data-value-for="type"]').textContent = ({all:'All', movie:'Movies', tv:'Shows', anime:'Anime'})[t];
-  qs('.chip[data-chip="type"]').classList.toggle('chip-active', t !== 'all');
+  syncChip('type', { radios:'media-type', value:t, label:TYPE_LABELS[t], active:t !== 'all' });
   document.body.classList.toggle('is-anime', t === 'anime');
 }
 
 function setSort(s) {
   state.sort = s;
-  qsa('input[name="sort-by"]').forEach(r => { r.checked = (r.value === s); });
-  qs('[data-value-for="sort"]').textContent = SORT_LABELS[s] || 'Popularity';
-  qs('.chip[data-chip="sort"]').classList.toggle('chip-active', s !== DEFAULT_SORT);
+  syncChip('sort', { radios:'sort-by', value:s, label:SORT_LABELS[s] || 'Popularity', active:s !== DEFAULT_SORT });
 }
 
 function setLanguage(code) {
   state.language = code || '';
-  qsa('input[name="lang"]').forEach(r => { r.checked = (r.value === state.language); });
   const label = state.language ? (LANG_NAME_MAP[state.language] || state.language.toUpperCase()) : 'Any';
-  qs('[data-value-for="language"]').textContent = label;
-  qs('.chip[data-chip="language"]').classList.toggle('chip-active', !!state.language);
+  syncChip('language', { radios:'lang', value:state.language, label, active:!!state.language });
 }
 
 function setYearRange(min, max) {
@@ -1156,8 +1222,7 @@ function syncYearDisplay() {
   els.yearMaxVal.textContent = state.yearMax >= cy ? 'Now' : state.yearMax;
   const txt = (state.yearMin === 0 && state.yearMax >= cy) ? 'Any' :
               `${state.yearMin === 0 ? '...' : state.yearMin}–${state.yearMax >= cy ? 'Now' : state.yearMax}`;
-  qs('[data-value-for="year"]').textContent = txt;
-  qs('.chip[data-chip="year"]').classList.toggle('chip-active', txt !== 'Any');
+  syncChip('year', { label: txt, active: txt !== 'Any' });
 }
 
 function setRatingRange(min, max) {
@@ -1171,8 +1236,7 @@ function syncRatingDisplay() {
   els.ratingMaxVal.textContent = state.ratingMax.toFixed(1).replace(/\.0$/,'');
   const txt = (state.ratingMin === 0 && state.ratingMax === 10) ? '0–10'
             : `${state.ratingMin}–${state.ratingMax}`;
-  qs('[data-value-for="rating"]').textContent = '★ ' + txt;
-  qs('.chip[data-chip="rating"]').classList.toggle('chip-active', state.ratingMin > 0 || state.ratingMax < 10);
+  syncChip('rating', { label: '★ ' + txt, active: state.ratingMin > 0 || state.ratingMax < 10 });
 }
 
 function syncServicesFromUI() {
@@ -1181,13 +1245,10 @@ function syncServicesFromUI() {
   state.serviceVals = checked.map(c => c.value);
   state.servicesAll = checked.length === 0;
   els.serviceAll.checked = state.servicesAll;
-  // chip value text
-  let val = 'All';
-  if (!state.servicesAll) val = checked.length === 1
-    ? SERVICES.find(s => s.v === state.serviceVals[0])?.name || '1 selected'
+  const label = state.servicesAll ? 'All'
+    : checked.length === 1 ? (SERVICES.find(s => s.v === state.serviceVals[0])?.name || '1 selected')
     : `${checked.length} selected`;
-  qs('[data-value-for="services"]').textContent = val;
-  qs('.chip[data-chip="services"]').classList.toggle('chip-active', !state.servicesAll);
+  syncChip('services', { label, active: !state.servicesAll });
 }
 
 
@@ -1232,46 +1293,33 @@ function wireFilters() {
       }
     });
   }
-  // Year range
-  els.yearMin.addEventListener('input', () => {
-    if (Number(els.yearMin.value) > Number(els.yearMax.value)) els.yearMin.value = els.yearMax.value;
+  /* Both range chips behave identically: whichever thumb was dragged past the
+     other gets pinned to it, the pair is mirrored into state, the label
+     updates live on `input`, and only `change` (drag release) refetches.
+     `apply` is the one thing that differs — year goes through the segmented
+     slider scale, rating is read straight off the input. */
+  const wireRange = (minEl, maxEl, resetEl, apply, reset) => {
+    const onInput = (moved) => {
+      const lo = Number(minEl.value), hi = Number(maxEl.value);
+      if (lo > hi) { if (moved === minEl) minEl.value = hi; else maxEl.value = lo; }
+      apply();
+    };
+    minEl.addEventListener('input', () => onInput(minEl));
+    maxEl.addEventListener('input', () => onInput(maxEl));
+    minEl.addEventListener('change', onFilterChange);
+    maxEl.addEventListener('change', onFilterChange);
+    resetEl.addEventListener('click', (e) => { e.preventDefault(); reset(); onFilterChange(); });
+  };
+  wireRange(els.yearMin, els.yearMax, els.yearReset, () => {
     state.yearMin = sliderToYear(els.yearMin.value);
     state.yearMax = sliderToYear(els.yearMax.value);
     syncYearDisplay();
-  });
-  els.yearMax.addEventListener('input', () => {
-    if (Number(els.yearMax.value) < Number(els.yearMin.value)) els.yearMax.value = els.yearMin.value;
-    state.yearMin = sliderToYear(els.yearMin.value);
-    state.yearMax = sliderToYear(els.yearMax.value);
-    syncYearDisplay();
-  });
-  els.yearMin.addEventListener('change', onFilterChange);
-  els.yearMax.addEventListener('change', onFilterChange);
-  els.yearReset.addEventListener('click', (e) => {
-    e.preventDefault();
-    setYearRange(0, new Date().getFullYear());
-    onFilterChange();
-  });
-  // Rating
-  els.ratingMin.addEventListener('input', () => {
-    let mn = parseFloat(els.ratingMin.value), mx = parseFloat(els.ratingMax.value);
-    if (mn > mx) { mn = mx; els.ratingMin.value = mn; }
-    state.ratingMin = mn;
+  }, () => setYearRange(0, new Date().getFullYear()));
+  wireRange(els.ratingMin, els.ratingMax, els.ratingReset, () => {
+    state.ratingMin = parseFloat(els.ratingMin.value);
+    state.ratingMax = parseFloat(els.ratingMax.value);
     syncRatingDisplay();
-  });
-  els.ratingMax.addEventListener('input', () => {
-    let mn = parseFloat(els.ratingMin.value), mx = parseFloat(els.ratingMax.value);
-    if (mx < mn) { mx = mn; els.ratingMax.value = mx; }
-    state.ratingMax = mx;
-    syncRatingDisplay();
-  });
-  els.ratingMin.addEventListener('change', onFilterChange);
-  els.ratingMax.addEventListener('change', onFilterChange);
-  els.ratingReset.addEventListener('click', (e) => {
-    e.preventDefault();
-    setRatingRange(0, 10);
-    onFilterChange();
-  });
+  }, () => setRatingRange(0, 10));
   // Services + "All"
   els.serviceAll.addEventListener('change', () => {
     if (els.serviceAll.checked) {
@@ -1345,34 +1393,49 @@ function wireFilters() {
     panel.style.left = `${left}px`;
     panel.style.top  = `${r.bottom + 8}px`;
   };
-  qsa('.chip[data-chip]').forEach(d => {
+  const chips = qsa('.chip[data-chip]');
+  const closeAllChips = () => chips.forEach(d => { d.open = false; });
+  /* A fixed panel can't follow its trigger, so it closes on scroll/resize.
+     These listeners only exist while a panel is actually open — previously
+     they ran a document-wide querySelectorAll on every scroll event for the
+     whole session, which is pure cost on a page built around scrolling. */
+  const watchDismiss = (on) => {
+    const fn = on ? addEventListener : removeEventListener;
+    fn.call(window, 'scroll', closeAllChips, { passive: true });
+    fn.call(window, 'resize', closeAllChips);
+  };
+  chips.forEach(d => {
     d.addEventListener('toggle', () => {
       if (d.open) {
-        qsa('.chip[data-chip]').forEach(o => { if (o !== d) o.open = false; });
+        chips.forEach(o => { if (o !== d) o.open = false; });
         positionPanel(d);
       }
+      watchDismiss(chips.some(c => c.open));
     });
   });
   document.addEventListener('click', (e) => {
-    if (!e.target.closest('.chip[data-chip]') && !e.target.closest('.chip-panel')) {
-      qsa('.chip[data-chip][open]').forEach(d => d.open = false);
-    }
+    if (!e.target.closest('.chip[data-chip]') && !e.target.closest('.chip-panel')) closeAllChips();
   });
-  // Close on scroll/resize - fixed panels can't move with their trigger otherwise
-  const closeAllChips = () => qsa('.chip[data-chip][open]').forEach(d => d.open = false);
-  window.addEventListener('scroll', closeAllChips, { passive: true });
-  window.addEventListener('resize', closeAllChips);
 
   // Scroll arrows
   els.scrollL.addEventListener('click', () => els.chipRail.scrollBy({ left: -240, behavior:'smooth' }));
   els.scrollR.addEventListener('click', () => els.chipRail.scrollBy({ left:  240, behavior:'smooth' }));
+  /* scrollWidth/clientWidth force layout, so coalesce to one read per frame
+     instead of one per scroll event — the rail fires these in bursts while
+     the user drags it. */
+  let arrowsQueued = false;
   const updateArrows = () => {
-    const sl = els.chipRail.scrollLeft;
-    const max = els.chipRail.scrollWidth - els.chipRail.clientWidth - 4;
-    els.scrollL.toggleAttribute('disabled', sl <= 0);
-    els.scrollR.toggleAttribute('disabled', sl >= max);
+    if (arrowsQueued) return;
+    arrowsQueued = true;
+    requestAnimationFrame(() => {
+      arrowsQueued = false;
+      const sl = els.chipRail.scrollLeft;
+      const max = els.chipRail.scrollWidth - els.chipRail.clientWidth - 4;
+      els.scrollL.toggleAttribute('disabled', sl <= 0);
+      els.scrollR.toggleAttribute('disabled', sl >= max);
+    });
   };
-  els.chipRail.addEventListener('scroll', updateArrows);
+  els.chipRail.addEventListener('scroll', updateArrows, { passive: true });
   window.addEventListener('resize', updateArrows);
   setTimeout(updateArrows, 50);
 
@@ -1429,6 +1492,10 @@ function onFilterChange() {
 /* ---------- 10. DETAIL OVERLAY ---------- */
 let lastSelectedRegion = '';
 let currentDetail = null;  // {id, mt, item} - set on open, cleared on close. Used so collection:change can re-render the row.
+/* Bumped on every showDetail / fetchProviders call so a slow response from a
+   previously-viewed title can't paint over the one on screen now. */
+let detailToken = 0;
+let providerToken = 0;
 
 /* Render the spoken-languages strip beneath the meta row.
    Source of truth: TMDB's `spoken_languages` (each has iso_639_1, english_name,
@@ -1511,33 +1578,29 @@ function showLanguageInfoOverlay(spoken, origIso) {
 
 function renderCollectionActions(item) {
   const entry = getEntry(item.id, getMediaType(item)) || {};
-  const fav    = !!entry.favourite;
-  const status = entry.status || '';
-  const rating = entry.rating || '';
-  const btn = (key, label, on) => `
+  return COLLECTION_ACTIONS.map(({ key, label }) => {
+    const on = isActionActive(entry, key);
+    return `
     <button type="button" class="coll-btn coll-${key}${on ? ' is-active' : ''}"
       data-coll-action="${key}" aria-pressed="${on ? 'true' : 'false'}" title="${label}">
       <span class="coll-icon">${ICONS[key]}</span>
       <span class="coll-label">${label}</span>
     </button>`;
-  return [
-    btn('favourite', 'Favourite',   fav),
-    btn('want',      'Want to watch', status === 'want'),
-    btn('watching',  'Watching',    status === 'watching'),
-    btn('watched',   'Watched',     status === 'watched'),
-    btn('liked',     'Liked',       rating === 'liked'),
-    btn('disliked',  'Disliked',    rating === 'disliked'),
-  ].join('');
+  }).join('');
 }
 
 function showDetail(id, mt) {
-  const key = `${mt}:${id}`;
   const item = state.cache.find(x => x.id === id && getMediaType(x) === mt)
-            || state.detailOverrides[key];
+            || state.detailOverrides[collectionKey(id, mt)];
   if (!item) return;
   currentDetail = { id, mt, item };
+  /* Opening a second title before the first one's requests land used to let the
+     stale responses overwrite the new title's meta, cast and providers. Every
+     async continuation below re-checks this token and bails if it moved on. */
+  const token = ++detailToken;
+  const isStale = () => token !== detailToken;
   const title = item.title || item.name || '';
-  const date  = item.release_date || item.first_air_date || '';
+  const date  = dateOf(item);
 
   // Reset poster + backdrop. In low-data mode skip the src entirely so the
   // browser never fetches them; CSS paints LowData.svg on the wrapping
@@ -1554,28 +1617,17 @@ function showDetail(id, mt) {
 
   els.detailTitle.textContent = title;
   els.detailOverview.textContent = item.overview || 'No description available.';
-  els.detailMeta.innerHTML = renderDetailMetaInitial(item);
+  els.detailMeta.innerHTML = renderDetailMeta(item);
   if (els.detailLangs) { els.detailLangs.hidden = true; els.detailLangs.innerHTML = ''; }
   els.detailActions.innerHTML = renderDetailActions(item, '');
   els.detailCollectionActions.innerHTML = renderCollectionActions(item);
-  els.detailCast.innerHTML = '<div style="color:var(--text-mid);font-size:13px;display:flex;align-items:center;gap:8px;"><span class="spinner"></span>Loading cast…</div>';
+  els.detailCast.innerHTML = loadingHtml('Loading cast…');
   els.seeMoreCast.hidden = true;
-  els.detailProviders.innerHTML = '<div style="color:var(--text-mid);font-size:13px;display:flex;align-items:center;gap:8px;"><span class="spinner"></span>Loading streaming…</div>';
+  els.detailProviders.innerHTML = loadingHtml('Loading streaming…');
   els.regionRow.innerHTML = '';
 
-  // Reset the Copy ID / Copy slug pills so previous state doesn't carry over.
-  if (els.copyIdBtn) {
-    if (copyIdResetTimer) { clearTimeout(copyIdResetTimer); copyIdResetTimer = null; }
-    els.copyIdBtn.classList.remove('is-copied');
-    const label = qs('.copy-id-text', els.copyIdBtn);
-    if (label) label.textContent = 'Copy ID (DEBUG)';
-  }
-  if (els.copySlugBtn) {
-    if (copySlugResetTimer) { clearTimeout(copySlugResetTimer); copySlugResetTimer = null; }
-    els.copySlugBtn.classList.remove('is-copied');
-    const label = qs('.copy-id-text', els.copySlugBtn);
-    if (label) label.textContent = 'Copy title';
-  }
+  // Reset the copy pills so a previous title's "Copied" state doesn't carry over.
+  [els.copySlugBtn, els.copyIdBtn].forEach(resetCopyBtn);
 
   showOverlay(els.detailOverlay);
   attachImageLoaders(els.detailOverlay);
@@ -1587,13 +1639,14 @@ function showDetail(id, mt) {
     .then(d => {
       const kwList = (d.keywords && (d.keywords.keywords || d.keywords.results)) || [];
       const keywordNsfw = kwList.some(k => NSFW_KEYWORD_IDS.has(k.id));
-      nsfwKeywordCache.set(`${mt}:${id}`, keywordNsfw);
+      nsfwKeywordCache.set(collectionKey(id, mt), keywordNsfw);
+      if (keywordNsfw) paintNsfwOnCard(item);   // cards repaint even if the overlay moved on
+      if (isStale()) return;
       els.detailMeta.innerHTML = renderDetailMeta(item, d);
       renderDetailLangs(d);
       const trailer = (d.videos?.results || []).find(v => v.site === 'YouTube' && v.type === 'Trailer' && v.official)
                     || (d.videos?.results || []).find(v => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'));
       els.detailActions.innerHTML = renderDetailActions(item, trailer);
-      if (keywordNsfw) paintNsfwOnCard(item);
       // Overview can be richer if we have it
       if (d.overview) els.detailOverview.textContent = d.overview;
     })
@@ -1603,20 +1656,21 @@ function showDetail(id, mt) {
   fetch(`${TMDB}/${mt}/${id}/credits?api_key=${API_KEY}`)
     .then(r => r.json())
     .then(d => {
+      if (isStale()) return;
       const cast = d.cast || [];
-      if (!cast.length) { els.detailCast.innerHTML = '<p style="color:var(--text-low);font-size:13px;">No cast info.</p>'; return; }
-      const preview = cast.slice(0, CAST_PREVIEW_MAX);
-      els.detailCast.innerHTML = preview.map((p,i) => renderPerson(p, p.character || '', i)).join('');
+      if (!cast.length) { els.detailCast.innerHTML = noteHtml('No cast info.'); return; }
+      els.detailCast.innerHTML = cast.slice(0, CAST_PREVIEW_MAX).map((p,i) => renderPerson(p, p.character || '', i)).join('');
       attachImageLoaders(els.detailCast);
       if (cast.length > CAST_PREVIEW_MAX) {
         els.seeMoreCast.hidden = false;
         els.seeMoreCast.onclick = () => showCastGrid(cast, true);
       }
     })
-    .catch(() => { els.detailCast.innerHTML = '<p style="color:var(--text-low);font-size:13px;">Could not load cast.</p>'; });
+    .catch(() => { if (!isStale()) els.detailCast.innerHTML = noteHtml('Could not load cast.'); });
 
   // Region selector + providers
   fetchRegions().then(regions => {
+    if (isStale()) return;
     lastSelectedRegion = state.userRegion || 'US';
     const opts = regions.slice().sort((a,b)=>a.english_name.localeCompare(b.english_name))
       .map(r => `<option value="${r.iso_3166_1}"${r.iso_3166_1===lastSelectedRegion?' selected':''}>${escapeHtml(r.english_name)}</option>`).join('');
@@ -1632,45 +1686,36 @@ function showDetail(id, mt) {
   });
 }
 
-function renderDetailMetaInitial(item) {
-  const date = item.release_date || item.first_air_date || '';
-  const mt = getMediaType(item);
-  const rating = item.vote_average || 0;
-  const votes  = item.vote_count || 0;
-  return `
-    ${rating > 0 ? `<span class="star">★ ${rating.toFixed(1)}</span><span class="vote-count">${formatVotes(votes)} votes</span><span class="dot">·</span>` : ''}
-    <span>${yearOf(date)}</span>
-    <span class="dot">·</span>
-    <span class="badge">${getTypeLabel(mt)}</span>
-    ${isAnime(item) ? `<span class="badge">Anime</span>` : ''}
-    ${isExplicit(item) ? `<span class="badge adult">NSFW · 18+</span>` : ''}
-  `;
-}
-function renderDetailMeta(item, d) {
-  const date = item.release_date || item.first_air_date || '';
-  const mt = getMediaType(item);
-  const rating = item.vote_average || 0;
-  const votes  = item.vote_count || 0;
-  const genres = (d.genres || []).map(g => g.name).join(' · ');
-  let extra = '';
+/* Runtime for movies, season/episode counts for shows. Only available once the
+   full record has loaded, so it's a separate tail on the meta row. */
+function renderRuntimeMeta(mt, d) {
   if (mt === 'movie' && d.runtime) {
-    const m = d.runtime % 60, h = Math.floor(d.runtime/60);
-    extra = `<span class="dot">·</span><span>${h ? h+'h ':''}${m}m</span>`;
-  } else if (mt === 'tv') {
+    const h = Math.floor(d.runtime / 60), m = d.runtime % 60;
+    return `<span>${h ? h+'h ' : ''}${m}m</span>`;
+  }
+  if (mt === 'tv') {
     const parts = [];
     if (d.number_of_seasons)  parts.push(d.number_of_seasons === 1 ? '1 season' : `${d.number_of_seasons} seasons`);
     if (d.number_of_episodes) parts.push(`${d.number_of_episodes} eps`);
-    if (parts.length) extra = `<span class="dot">·</span><span>${parts.join(', ')}</span>`;
+    if (parts.length) return `<span>${parts.join(', ')}</span>`;
   }
+  return '';
+}
+/* One renderer for both passes. `d` (the full /movie|/tv payload) is absent on
+   the synchronous paint from cache and present once the fetch lands; genres and
+   runtime are the only parts that need it. */
+function renderDetailMeta(item, d = null) {
+  const mt = getMediaType(item);
+  const rating = item.vote_average || 0;
+  const genres = d ? (d.genres || []).map(g => g.name).join(', ') : '';
   return `
-    ${rating > 0 ? `<span class="star">★ ${rating.toFixed(1)}</span><span class="vote-count">${formatVotes(votes)} votes</span><span class="dot">·</span>` : ''}
-    <span>${yearOf(date)}</span>
-    <span class="dot">·</span>
+    ${rating > 0 ? `<span class="star">★ ${rating.toFixed(1)}</span><span class="vote-count">${formatVotes(item.vote_count || 0)} votes</span>` : ''}
+    <span>${yearOf(dateOf(item))}</span>
     <span class="badge">${getTypeLabel(mt)}</span>
     ${isAnime(item) ? `<span class="badge">Anime</span>` : ''}
-    ${isExplicit(item) ? `<span class="badge adult">NSFW · 18+</span>` : ''}
-    ${genres ? `<span class="dot">·</span><span>${escapeHtml(genres)}</span>` : ''}
-    ${extra}
+    ${isExplicit(item) ? `<span class="badge adult">NSFW 18+</span>` : ''}
+    ${genres ? `<span>${escapeHtml(genres)}</span>` : ''}
+    ${d ? renderRuntimeMeta(mt, d) : ''}
   `;
 }
 function renderDetailActions(item, trailer) {
@@ -1678,11 +1723,11 @@ function renderDetailActions(item, trailer) {
   const mt = getMediaType(item);
   if (trailer && trailer.key) parts.push(`<a class="btn btn-red" target="_blank" rel="noopener" href="https://www.youtube.com/watch?v=${trailer.key}">▶ Watch trailer</a>`);
   if (item.id) {
-    // Vidking embed in a new tab. TV needs season/episode in the path -
-    // default to S1E1; episodeSelector lets the user jump within the player.
-    const watchUrl = mt === 'movie'
-      ? `https://www.vidking.net/embed/movie/${item.id}?color=dc2626&autoPlay=true`
-      : `https://www.vidking.net/embed/tv/${item.id}/1/1?color=dc2626&autoPlay=true&nextEpisode=true&episodeSelector=true`;
+    /* zstream browses by title slug, not by TMDB id, and its /browse path is
+       the same for films and shows — so unlike the old embed URLs there's no
+       movie/tv branch here, only the button label differs. */
+    const slug = slugify(item.title || item.name || '');
+    const watchUrl = `https://zstream.mov/browse/${slug}`;
     const watchLabel = mt === 'movie' ? 'Watch movie' : 'Watch show';
     const animeMode = isAnime(item);
     const genreIds = item.genre_ids || (item.genres || []).map(g => g.id);
@@ -1692,7 +1737,7 @@ function renderDetailActions(item, trailer) {
     } else if (animated) {
       parts.push(`<button type="button" class="btn btn-anime btn-muted" disabled title="Not detected as anime"><span class="anime-spark" aria-hidden="true">❓</span> Watch anime</button>`);
     }
-    // Vidking button: greyed but still clickable when an anime primary is present.
+    // Greyed but still clickable when an anime primary is present.
     const pirateClass = animeMode ? 'btn btn-pirate btn-muted' : 'btn btn-pirate';
     parts.push(`<a class="${pirateClass}" target="_blank" rel="noopener" href="${watchUrl}"><span class="pirate-flag" aria-hidden="true">🏴‍☠️</span> ${watchLabel}</a>`);
   }
@@ -1705,7 +1750,9 @@ const JW_LOCALE_MAP = { GB: 'uk' };
 const JW_SUPPORTED = new Set(['us','de','br','au','nz','ca','uk','za','ie','bs','gf','ba','va','xk','by','dk','bz','cy','cm','gy','ml','ni','cd','mw','tz','pg','zw','az','lv','ec','tw','pk','bg','ru','ch','at','my','sg','fi','hu','gr','co','ua','hn','ee','py','is','pa','uy','do','es','fr','eg','ae','iq','hr','ci','cv','pf','lc','lu','sc','ne','me','mg','mz','ke','ug','tt','tc','zm','sn','jm','lb','ps','mk','cu','ao','ag','sv','dz','ma','ad','al','jo','bh','kw','om','qa','be','jp','kr','sa','ar','it','nl','pt','tr','in','mx','bf','cl','pe','th','se','cz','id','pl','ph','ro','no','bo','bb','cr','td','gh','gq','fj','gg','mt','mu','gt','lt','rs','si','ng','sk','il','ve','md','hk','li','mc','sm','gi','tn','ly','bm','ye']);
 
 function fetchProviders(mt, id, title, date, region) {
-  const slug = title.toLowerCase().replace(/[''']/g,'').replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
+  const token = ++providerToken;
+  const isStale = () => token !== providerToken;
+  const slug = slugify(title);
   const jwType = mt === 'movie' ? 'movie' : 'tv-series';
   const jwLocale = (() => { const c = JW_LOCALE_MAP[region] || region.toLowerCase(); return JW_SUPPORTED.has(c) ? c : 'us'; })();
   const jwFallback = `https://www.justwatch.com/${jwLocale}/${jwType}/${slug}`;
@@ -1724,10 +1771,11 @@ function fetchProviders(mt, id, title, date, region) {
       </div>`;
   };
 
-  els.detailProviders.innerHTML = '<div style="color:var(--text-mid);font-size:13px;display:flex;align-items:center;gap:8px;"><span class="spinner"></span>Loading…</div>';
+  els.detailProviders.innerHTML = loadingHtml('Loading…');
   fetch(`${TMDB}/${mt}/${id}/watch/providers?api_key=${API_KEY}`)
     .then(r => r.json())
     .then(data => {
+      if (isStale()) return;
       const regionData = data.results?.[region];
       const jwUrl = regionData?.link || jwFallback;
       const links = buildLinks(jwUrl);
@@ -1783,25 +1831,30 @@ function fetchProviders(mt, id, title, date, region) {
       }
     })
     .catch(() => {
+      if (isStale()) return;
       els.detailProviders.innerHTML = `<p class="providers-empty">Could not load providers.</p>${buildLinks(jwFallback)}`;
     });
 }
 
 
 /* ---------- 11. ACTOR OVERLAY ---------- */
+const ACTOR_CREDITS_MAX = 18;
+let actorToken = 0;
 function showActor(personId) {
-  els.actorContent.innerHTML = '<div style="color:var(--text-mid);font-size:13px;display:flex;align-items:center;gap:8px;padding:14px 0;"><span class="spinner"></span>Loading…</div>';
+  const token = ++actorToken;
+  els.actorContent.innerHTML = loadingHtml('Loading…', true);
   showOverlay(els.actorOverlay);
   Promise.all([
     fetch(`${TMDB}/person/${personId}?api_key=${API_KEY}`).then(r=>r.json()),
     fetch(`${TMDB}/person/${personId}/movie_credits?api_key=${API_KEY}`).then(r=>r.json()),
     fetch(`${TMDB}/person/${personId}/tv_credits?api_key=${API_KEY}`).then(r=>r.json()),
   ]).then(([p, mc, tc]) => {
-    const movies = (mc.cast || []).slice(0, 18);
-    const tvs    = (tc.cast || []).slice(0, 18);
+    if (token !== actorToken) return;
+    const movies = (mc.cast || []).slice(0, ACTOR_CREDITS_MAX);
+    const tvs    = (tc.cast || []).slice(0, ACTOR_CREDITS_MAX);
     const creditCard = (c, mt, idx = 0) => {
       const title = (mt === 'movie' ? c.title : c.name) || '';
-      const date  = mt === 'movie' ? (c.release_date || '') : (c.first_air_date || '');
+      const date  = dateOf(c);
       const year  = yearOf(date);
       const posterPath = c.poster_path || '';
       return `
@@ -1830,18 +1883,16 @@ function showActor(personId) {
     `;
     attachImageLoaders(els.actorContent);
   }).catch(() => {
-    els.actorContent.innerHTML = '<p style="color:var(--text-low);font-size:13px;padding:14px 0;">Could not load person.</p>';
+    if (token === actorToken) els.actorContent.innerHTML = noteHtml('Could not load person.', true);
   });
 }
 
 
 /* ---------- 12. CAST GRID ---------- */
 function showCastGrid(list, withRole) {
-  const isPeopleSearch = !withRole;
-  const heading = isPeopleSearch ? 'People' : 'Cast & crew';
   const html = list.map((p, i) => renderPerson(p, withRole ? p.character : '', i)).join('');
   els.castGridContent.innerHTML = `
-    <h3>${heading}</h3>
+    <h3>${withRole ? 'Cast &amp; crew' : 'People'}</h3>
     <div class="people-grid">${html}</div>
   `;
   attachImageLoaders(els.castGridContent);
@@ -1866,14 +1917,16 @@ function showInfoOverlay(regions) {
 
 /* ---------- 13b. COLLECTION OVERLAY + IMPORT/EXPORT ---------- */
 let collectionTab = 'all';
+/* Tabs are "All" plus one per collection action, in the order the user is most
+   likely to want them. Labels come from COLLECTION_ACTIONS except where the tab
+   reads better pluralised. */
+const TAB_LABEL_OVERRIDES = { favourite: 'Favourites' };
 const COLLECTION_TABS = [
-  { key: 'all',       label: 'All' },
-  { key: 'want',      label: 'Want to watch' },
-  { key: 'favourite', label: 'Favourites' },
-  { key: 'watching',  label: 'Watching' },
-  { key: 'watched',   label: 'Watched' },
-  { key: 'liked',     label: 'Liked' },
-  { key: 'disliked',  label: 'Disliked' },
+  { key: 'all', label: 'All' },
+  ...['want', 'favourite', 'watching', 'watched', 'liked', 'disliked'].map(key => ({
+    key,
+    label: TAB_LABEL_OVERRIDES[key] || COLLECTION_ACTIONS.find(a => a.key === key).label,
+  })),
 ];
 
 function openCollection() {
@@ -1887,15 +1940,7 @@ function openCollection() {
 function openDetailFromCollection(id, mt) {
   const e = getEntry(id, mt);
   if (!e) return;
-  state.detailOverrides[`${mt}:${id}`] = {
-    id: e.id,
-    media_type: e.mediaType,
-    title: e.title,
-    name: e.title,
-    poster_path: e.posterPath,
-    release_date: e.mediaType === 'movie' && e.year ? `${e.year}-01-01` : '',
-    first_air_date: e.mediaType === 'tv' && e.year ? `${e.year}-01-01` : '',
-  };
+  state.detailOverrides[collectionKey(id, mt)] = itemFromEntry(e);
   showDetail(id, mt);
 }
 
@@ -1921,13 +1966,9 @@ function updateCollectionTabActive() {
 }
 function renderCollectionBody() {
   const items = Object.values(loadCollection().items);
-  let filtered;
-  if (collectionTab === 'all')             filtered = items;
-  else if (collectionTab === 'favourite')  filtered = items.filter(e => e.favourite);
-  else if (collectionTab === 'liked' || collectionTab === 'disliked')
-                                           filtered = items.filter(e => e.rating === collectionTab);
-  else                                     filtered = items.filter(e => e.status === collectionTab);
-  filtered.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  // Tab keys other than 'all' are collection-action keys, so one predicate covers them.
+  const filtered = (collectionTab === 'all' ? items.slice() : items.filter(e => isActionActive(e, collectionTab)))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
   if (filtered.length === 0) {
     const msg = items.length === 0
@@ -1937,16 +1978,7 @@ function renderCollectionBody() {
     return;
   }
 
-  // Convert each entry to a TMDB-shaped item so renderCard works without changes.
-  const html = filtered.map((e, i) => renderCard({
-    id: e.id,
-    media_type: e.mediaType,
-    title: e.title,
-    name: e.title,
-    poster_path: e.posterPath,
-    release_date: e.mediaType === 'movie' && e.year ? `${e.year}-01-01` : '',
-    first_air_date: e.mediaType === 'tv' && e.year ? `${e.year}-01-01` : '',
-  }, i, false)).join('');
+  const html = filtered.map((e, i) => renderCard(itemFromEntry(e), i, false)).join('');
   els.collectionBody.innerHTML = `<div class="grid">${html}</div>`;
   attachImageLoaders(els.collectionBody);
 }
@@ -1999,7 +2031,7 @@ function importCollection(file) {
       const parts = [`Imported ${result.total} item${result.total === 1 ? '' : 's'}`];
       if (result.added)   parts.push(`${result.added} new`);
       if (result.updated) parts.push(`${result.updated} updated`);
-      setCollectionStatus(parts.join(' · ') + '.');
+      setCollectionStatus(parts.join(', ') + '.');
     } catch {
       setCollectionStatus('That file is not valid JSON.', 'error');
     }
@@ -2047,38 +2079,25 @@ async function copyTextToClipboard(text) {
     return ok;
   } catch { return false; }
 }
-const slugify = (str) =>
-  (str || '').toLowerCase()
-    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-let copySlugResetTimer = null;
-function flashCopySlug(text) {
-  const label = qs('.copy-id-text', els.copySlugBtn);
+/* Both copy pills behave identically; each carries its resting label in
+   data-label so this code never hard-codes the wording. */
+const COPY_RESET_MS = 1600;
+const copyTimers = new WeakMap();
+function flashCopy(btn, text) {
+  const label = qs('.copy-id-text', btn);
   if (!label) return;
-  if (copySlugResetTimer) clearTimeout(copySlugResetTimer);
-  els.copySlugBtn.classList.add('is-copied');
+  clearTimeout(copyTimers.get(btn));
+  btn.classList.add('is-copied');
   label.textContent = text;
-  copySlugResetTimer = setTimeout(() => {
-    els.copySlugBtn.classList.remove('is-copied');
-    label.textContent = 'Copy title';
-    copySlugResetTimer = null;
-  }, 1600);
+  copyTimers.set(btn, setTimeout(() => resetCopyBtn(btn), COPY_RESET_MS));
 }
-
-let copyIdResetTimer = null;
-function flashCopyId(text) {
-  const label = qs('.copy-id-text', els.copyIdBtn);
-  if (!label) return;
-  if (copyIdResetTimer) clearTimeout(copyIdResetTimer);
-  els.copyIdBtn.classList.add('is-copied');
-  label.textContent = text;
-  copyIdResetTimer = setTimeout(() => {
-    els.copyIdBtn.classList.remove('is-copied');
-    label.textContent = 'Copy ID (DEBUG)';
-    copyIdResetTimer = null;
-  }, 1600);
+function resetCopyBtn(btn) {
+  if (!btn) return;
+  clearTimeout(copyTimers.get(btn));
+  copyTimers.delete(btn);
+  btn.classList.remove('is-copied');
+  const label = qs('.copy-id-text', btn);
+  if (label) label.textContent = btn.dataset.label || '';
 }
 
 
@@ -2106,6 +2125,27 @@ function hideOverlay(el) {
   el.setAttribute('aria-hidden', 'true');
   // restore scroll only if no overlay still active
   if (!qs('.overlay.active')) document.body.style.overflow = '';
+}
+/* Single teardown path so the close button, a backdrop click and Escape can
+   never drift apart. Detail also drops currentDetail, otherwise a later
+   collection:change would keep re-rendering a row nobody is looking at. */
+function closeOverlay(el) {
+  hideOverlay(el);
+  if (el === els.detailOverlay) currentDetail = null;
+}
+/* Wire the two ways every overlay closes itself. */
+function wireOverlay(overlay, closeBtn) {
+  if (closeBtn) closeBtn.addEventListener('click', () => closeOverlay(overlay));
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeOverlay(overlay); });
+}
+/* Escape closes the top-most overlay only, so stacked popups unwind one at a
+   time. Reads the same --overlay-z scale the stylesheet defines, so a new
+   overlay participates just by having a z-index. */
+function closeTopOverlay() {
+  const open = qsa('.overlay.active');
+  if (!open.length) return;
+  const zOf = (el) => Number(getComputedStyle(el).zIndex) || 0;
+  closeOverlay(open.reduce((top, el) => zOf(el) >= zOf(top) ? el : top));
 }
 
 
@@ -2223,7 +2263,7 @@ function init() {
   // Eagerly detect country (for region selector default + future location toggle)
   fetchCountry().then(c => {
     state.userRegion = c;
-    els.regionDisplay.textContent = state.locationOnly ? c : c;
+    els.regionDisplay.textContent = c;
     if (state.locationOnly) onFilterChange();
   });
 
@@ -2243,82 +2283,59 @@ function init() {
     fetchMedia(true);
   });
 
-  // Result interactions (delegation)
-  els.grid.addEventListener('click', (e) => {
-    if (handleCollectionActionClick(e)) return;
-    const card = e.target.closest('.card');
-    if (card) showDetail(Number(card.dataset.id), card.dataset.type);
-  });
-  els.grid.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    if (e.target.closest('.card-quick-btn')) return; // let the button handle its own activation
-    const card = e.target.closest('.card');
-    if (card) { e.preventDefault(); showDetail(Number(card.dataset.id), card.dataset.type); }
-  });
-  els.peopleGrid.addEventListener('click', (e) => {
-    const p = e.target.closest('.person-card');
-    if (p) showActor(Number(p.dataset.id));
-  });
-  els.peopleGrid.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const p = e.target.closest('.person-card');
-    if (p) { e.preventDefault(); showActor(Number(p.dataset.id)); }
+  /* Cards and person cards are role="button", so both need click and
+     Enter/Space. Delegated once per container instead of eight near-identical
+     listeners. `guard` lets the grid's quick-add buttons swallow the event. */
+  const wireActivation = (root, selector, open, guard) => {
+    const hit = (e) => {
+      if (guard && guard(e)) return null;
+      return e.target.closest(selector);
+    };
+    root.addEventListener('click', (e) => { const el = hit(e); if (el) open(el); });
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.target.closest('.card-quick-btn')) return;  // button handles its own activation
+      const el = hit(e); if (el) { e.preventDefault(); open(el); }
+    });
+  };
+  const openCard = (open) => (card) => open(Number(card.dataset.id), card.dataset.type);
+  const openPerson = (p) => showActor(Number(p.dataset.id));
+
+  wireActivation(els.grid, '.card', openCard(showDetail), handleCollectionActionClick);
+  wireActivation(els.collectionBody, '.card', openCard(openDetailFromCollection), handleCollectionActionClick);
+  wireActivation(els.peopleGrid, '.person-card', openPerson);
+  wireActivation(els.detailCast, '.person-card', openPerson);
+  wireActivation(els.castGridContent, '.person-card', (p) => {
+    hideOverlay(els.castGridOverlay);
+    openPerson(p);
   });
   els.seeMorePeople.addEventListener('click', () => showCastGrid(state.personCache, false));
-  // Cast in detail card
-  els.detailCast.addEventListener('click', (e) => {
-    const p = e.target.closest('.person-card');
-    if (p) showActor(Number(p.dataset.id));
-  });
-  // Cast grid overlay clicks → actor
-  els.castGridContent.addEventListener('click', (e) => {
-    const p = e.target.closest('.person-card');
-    if (p) {
-      hideOverlay(els.castGridOverlay);
-      showActor(Number(p.dataset.id));
-    }
-  });
 
   // Actor overlay: credit clicks → detail overlay (no modal stacking)
-  const openCredit = (card) => {
+  wireActivation(els.actorContent, '.credit-card', (card) => {
     const id = Number(card.dataset.id);
     const mt = card.dataset.type;
     if (!id || (mt !== 'movie' && mt !== 'tv')) return;
     const title = card.dataset.title || '';
     const date  = card.dataset.date || '';
-    const posterPath = card.dataset.poster || '';
-    state.detailOverrides[`${mt}:${id}`] = {
-      id,
-      media_type: mt,
-      title,
-      name: title,
-      poster_path: posterPath,
-      release_date: mt === 'movie' ? date : '',
-      first_air_date: mt === 'tv' ? date : '',
+    state.detailOverrides[collectionKey(id, mt)] = {
+      id, media_type: mt, title, name: title,
+      poster_path: card.dataset.poster || '',
+      release_date:   mt === 'movie' ? date : '',
+      first_air_date: mt === 'tv'    ? date : '',
     };
     hideOverlay(els.actorOverlay);
     showDetail(id, mt);
-  };
-  els.actorContent.addEventListener('click', (e) => {
-    const card = e.target.closest('.credit-card');
-    if (card) openCredit(card);
-  });
-  els.actorContent.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const card = e.target.closest('.credit-card');
-    if (card) { e.preventDefault(); openCredit(card); }
   });
 
-  // Overlay close handlers
-  const closeDetail = () => { hideOverlay(els.detailOverlay); currentDetail = null; };
-  els.detailClose.addEventListener('click', closeDetail);
-  els.detailOverlay.addEventListener('click', (e) => { if (e.target === els.detailOverlay) closeDetail(); });
-  els.actorClose.addEventListener('click', () => hideOverlay(els.actorOverlay));
-  els.actorOverlay.addEventListener('click', (e) => { if (e.target === els.actorOverlay) hideOverlay(els.actorOverlay); });
-  els.castGridClose.addEventListener('click', () => hideOverlay(els.castGridOverlay));
-  els.castGridOverlay.addEventListener('click', (e) => { if (e.target === els.castGridOverlay) hideOverlay(els.castGridOverlay); });
-  els.infoClose.addEventListener('click', () => hideOverlay(els.infoOverlay));
-  els.infoOverlay.addEventListener('click', (e) => { if (e.target === els.infoOverlay) hideOverlay(els.infoOverlay); });
+  // Overlay close handlers (button + backdrop); Escape unwinds the stack.
+  wireOverlay(els.detailOverlay,     els.detailClose);
+  wireOverlay(els.actorOverlay,      els.actorClose);
+  wireOverlay(els.castGridOverlay,   els.castGridClose);
+  wireOverlay(els.infoOverlay,       els.infoClose);
+  wireOverlay(els.adblockOverlay,    els.adblockClose);
+  wireOverlay(els.collectionOverlay, els.collectionClose);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTopOverlay(); });
 
   // Watch buttons: anime variant routes to miruro's search by slugified title;
   // both then route through the adblock prompt unless the user has dismissed it.
@@ -2343,45 +2360,29 @@ function init() {
     e.preventDefault();
     showAdblockPrompt(link.href);
   });
-  els.adblockClose.addEventListener('click', () => hideOverlay(els.adblockOverlay));
-  els.adblockOverlay.addEventListener('click', (e) => { if (e.target === els.adblockOverlay) hideOverlay(els.adblockOverlay); });
-  els.adblockContinue.addEventListener('click', () => {
-    if (els.adblockDontShow.checked) {
-      try { localStorage.setItem(ADBLOCK_SKIP_KEY, '1'); } catch {}
-    }
+  /* Both adblock exits do the same thing; "I already have one" additionally
+     always persists the skip, where Continue only does so when ticked. */
+  const leaveAdblockPrompt = (persist) => {
+    if (persist) { try { localStorage.setItem(ADBLOCK_SKIP_KEY, '1'); } catch {} }
     const url = els.adblockContinue.dataset.url || '';
     hideOverlay(els.adblockOverlay);
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
-  });
-  // "I already have an adblocker" — trust the user, persist the skip flag,
-  // and continue to the site in one click.
-  els.adblockHaveIt.addEventListener('click', () => {
-    try { localStorage.setItem(ADBLOCK_SKIP_KEY, '1'); } catch {}
-    const url = els.adblockContinue.dataset.url || '';
-    hideOverlay(els.adblockOverlay);
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
-  });
+  };
+  els.adblockContinue.addEventListener('click', () => leaveAdblockPrompt(els.adblockDontShow.checked));
+  els.adblockHaveIt.addEventListener('click', () => leaveAdblockPrompt(true));
 
-  // Copy slug button
-  els.copySlugBtn.addEventListener('click', async () => {
+  // Copy pills at the bottom of the detail overlay
+  const wireCopy = (btn, valueOf) => btn.addEventListener('click', async () => {
     if (!currentDetail) return;
-    const title = currentDetail.item.title || currentDetail.item.name || '';
-    const slug = slugify(title);
-    const ok = await copyTextToClipboard(slug);
-    flashCopySlug(ok ? 'Copied' : 'Copy failed');
+    const value = valueOf(currentDetail);
+    const ok = await copyTextToClipboard(value);
+    flashCopy(btn, ok ? `Copied ${value}` : 'Copy failed');
   });
+  wireCopy(els.copySlugBtn, (d) => slugify(d.item.title || d.item.name || ''));
+  wireCopy(els.copyIdBtn,   (d) => String(d.id));
 
-  // Copy ID button (bottom of detail overlay)
-  els.copyIdBtn.addEventListener('click', async () => {
-    if (!currentDetail) return;
-    const ok = await copyTextToClipboard(String(currentDetail.id));
-    flashCopyId(ok ? `Copied ${currentDetail.id}` : 'Copy failed');
-  });
-
-  // Collection: open from header, close, outside-click, import/export, tabs, card clicks
+  // Collection: open from header, import/export, tabs
   els.collectionBtn.addEventListener('click', openCollection);
-  els.collectionClose.addEventListener('click', () => hideOverlay(els.collectionOverlay));
-  els.collectionOverlay.addEventListener('click', (e) => { if (e.target === els.collectionOverlay) hideOverlay(els.collectionOverlay); });
   els.collectionExport.addEventListener('click', exportCollection);
   els.collectionImport.addEventListener('click', () => els.collectionImportInput.click());
   els.collectionImportInput.addEventListener('change', (e) => {
@@ -2397,26 +2398,10 @@ function init() {
     updateCollectionTabActive();   // cheap: class swap only
     renderCollectionBody();        // body content needs new filter
   });
-  els.collectionBody.addEventListener('click', (e) => {
-    if (handleCollectionActionClick(e)) return;
-    const card = e.target.closest('.card');
-    if (card) openDetailFromCollection(Number(card.dataset.id), card.dataset.type);
-  });
-  els.collectionBody.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    if (e.target.closest('.card-quick-btn')) return;
-    const card = e.target.closest('.card');
-    if (card) { e.preventDefault(); openDetailFromCollection(Number(card.dataset.id), card.dataset.type); }
-  });
-
   // Detail-overlay collection-actions row
   els.detailCollectionActions.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-coll-action]');
-    if (!btn || !currentDetail) return;
-    const action = btn.dataset.collAction;
-    if (action === 'favourite') toggleFavourite(currentDetail.item);
-    else if (action === 'liked' || action === 'disliked') setRating(currentDetail.item, action);
-    else                        setEntryStatus(currentDetail.item, action);
+    if (btn && currentDetail) applyCollectionAction(currentDetail.item, btn.dataset.collAction);
   });
 
   // collection:change → re-sync every surface that shows collection state
@@ -2438,6 +2423,14 @@ function init() {
     }
   });
 
+  /* Another tab wrote the collection — drop our memoised copy and re-sync.
+     `storage` only fires in *other* tabs, so this can't loop. */
+  window.addEventListener('storage', (e) => {
+    if (e.key !== null && e.key !== COLLECTION_KEY) return;
+    collectionCache = null;
+    document.dispatchEvent(new CustomEvent('collection:change'));
+  });
+
   // Initial badge from saved data
   document.dispatchEvent(new CustomEvent('collection:change'));
 
@@ -2447,9 +2440,6 @@ function init() {
   // Initial paint
   updatePills();
   fetchMedia(false);
-
-  // First-visit popup (only shows when no interface preference has been stored yet)
-
 }
 
 document.addEventListener('DOMContentLoaded', init);
