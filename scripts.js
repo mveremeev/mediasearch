@@ -222,6 +222,7 @@ const state = {
   personCache: [],       // current people (search only)
   loading: false,
   exhausted: false,
+  fetchFailed: false,    // last fetch failed outright (network/HTTP), vs. legitimately returning nothing
   autoLoad: true,        // when off, show a Load More button instead of infinite scroll
   lowData: false,        // when on, no <img> rendered anywhere; cached LowData.svg shown via CSS, autoLoad forced off
   detailOverrides: {},   // {`${mt}:${id}`: minimal item} - lets showDetail open items not in cache (e.g. from collection)
@@ -352,6 +353,18 @@ function providerImg(path, name) {
   // Provider logos: in low-data, CSS shows data-name text fallback via ::before.
   if (state.lowData || !path) return '';
   return `<img src="${IMG}/w92${path}" alt="${escapeAttr(name)}" width="92" height="92" loading="lazy" decoding="async">`;
+}
+
+/* fetch().then(r => r.json()) treats every HTTP status as success. TMDB answers
+   401 (bad key), 404 and 429 (rate limit) with a JSON body, so `d.results` comes
+   back undefined and the `|| []` fallbacks downstream render a transport failure
+   as a genuinely empty result set — "No results found" for what is actually a
+   dead API key. Check the status so callers can tell the two apart. */
+function tmdbJson(url, init) {
+  return fetch(url, init).then(r => {
+    if (!r.ok) throw new Error(`TMDB ${r.status}`);
+    return r.json();
+  });
 }
 
 const formatVotes = (n) => n >= 1000 ? (n/1000).toFixed(n>=10000 ? 0 : 1)+'k' : String(n||0);
@@ -600,6 +613,11 @@ function getCounts() {
   items.forEach(e => COLLECTION_ACTIONS.forEach(a => { if (isActionActive(e, a.key)) c[a.key]++; }));
   return c;
 }
+/* Keys that must never be used as collection map keys. Assigning `obj['__proto__']`
+   on a plain object swaps its prototype instead of storing an entry, so a crafted
+   import file would silently drop the item while still counting it as imported. */
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /* Merge an imported collection into the current one. Per-field "newest wins" by
    updatedAt; non-empty title/poster/year overwrite empty ones regardless. */
 function mergeImport(incoming) {
@@ -607,10 +625,11 @@ function mergeImport(incoming) {
     return { ok:false, reason:'Not a valid collection file.' };
   }
   const col = loadCollection();
-  let added = 0, updated = 0;
+  let added = 0, updated = 0, skipped = 0;
   Object.entries(incoming.items).forEach(([key, inc]) => {
-    if (!inc || typeof inc !== 'object' || inc.id == null || !inc.mediaType) return;
-    const existing = col.items[key];
+    if (UNSAFE_KEYS.has(key)) { skipped++; return; }
+    if (!inc || typeof inc !== 'object' || inc.id == null || !inc.mediaType) { skipped++; return; }
+    const existing = Object.prototype.hasOwnProperty.call(col.items, key) ? col.items[key] : undefined;
     if (!existing) {
       col.items[key] = {
         favourite: false, status: null, rating: null,
@@ -639,7 +658,9 @@ function mergeImport(incoming) {
     col.items[key] = merged;
   });
   saveCollection(col);
-  return { ok:true, added, updated, total: Object.keys(incoming.items).length };
+  /* `total` counts only entries we actually accepted — reporting the raw key count
+     would claim success for malformed or unsafe keys we silently dropped. */
+  return { ok:true, added, updated, skipped, total: Object.keys(incoming.items).length - skipped };
 }
 
 
@@ -683,8 +704,7 @@ function fetchCountry() {
 }
 function fetchRegions() {
   if (state.allRegions.length) return Promise.resolve(state.allRegions);
-  return fetch(`${TMDB}/watch/providers/regions?api_key=${API_KEY}`)
-    .then(r => r.json())
+  return tmdbJson(`${TMDB}/watch/providers/regions?api_key=${API_KEY}`)
     .then(d => { state.allRegions = d.results || []; return state.allRegions; })
     .catch(() => []);
 }
@@ -790,45 +810,50 @@ function runSearch(append) {
   else                    mediaUrl = `${TMDB}/search/multi?${params}`;
 
   const personPromise = (state.page === 1 && !append)
-    ? fetch(`${TMDB}/search/person?api_key=${API_KEY}&query=${encodeURIComponent(state.query)}&page=1`)
-        .then(r => r.json())
+    ? tmdbJson(`${TMDB}/search/person?api_key=${API_KEY}&query=${encodeURIComponent(state.query)}&page=1`)
         .then(d => d.results || [])
         .catch(() => [])
     : Promise.resolve([]);
 
-  const mediaPromise = fetch(mediaUrl).then(r => r.json()).then(d => {
+  /* The media request is the one that decides success. A failed *person* lookup
+     just means no people strip, which is not worth surfacing as an error. */
+  let failed = false;
+  const mediaPromise = tmdbJson(mediaUrl).then(d => {
     let arr = (d.results || [])
       .filter(x => x.media_type !== 'person')
       .map(m => ({ ...m, media_type: m.media_type || (t === 'tv' ? 'tv' : 'movie') }));
     if (state.type === 'anime') arr = arr.filter(isAnime);
     if (!state.adultOnly) arr = arr.filter(x => !isExplicit(x));
     return arr;
-  }).catch(() => []);
+  }).catch(() => { failed = true; return []; });
 
   Promise.all([personPromise, mediaPromise])
-    .then(([people, media]) => commitResults(media, people, append));
+    .then(([people, media]) => commitResults(media, people, append, failed));
 }
 
 function runDiscover(append) {
   const mediaTypes = DISCOVER_TYPES[state.type] || DISCOVER_TYPES.all;
+  /* 'all' fans out to movie + tv. Only call the page a failure when every leg
+     failed — one surviving half is still a usable result set. */
+  let failures = 0;
   Promise.all(mediaTypes.map(mt =>
-    fetch(`${TMDB}/discover/${mt}?${buildDiscoverParams(mt)}`)
-      .then(r => r.json())
+    tmdbJson(`${TMDB}/discover/${mt}?${buildDiscoverParams(mt)}`)
       .then(d => (d.results || []).map(m => ({ ...m, media_type: mt })))
-      .catch(() => [])
+      .catch(() => { failures++; return []; })
   )).then(results => {
     // Interleaved movie+tv needs re-sorting; TMDB only ordered each half.
     let media = sortLocally(results.flat());
     // Belt-and-braces: client-side post-filter even with without_keywords on,
     // since TMDB's keyword tagging is incomplete.
     if (!state.adultOnly) media = media.filter(x => !isExplicit(x));
-    commitResults(media, [], append);
+    commitResults(media, [], append, failures === mediaTypes.length);
   });
 }
 
 /* Shared tail for both fetch paths: land the results, update the paging flags,
-   repaint. `people` is ignored when appending — the strip is first-page only. */
-function commitResults(media, people, append) {
+   repaint. `people` is ignored when appending — the strip is first-page only.
+   `failed` distinguishes "TMDB is unreachable" from "TMDB returned nothing". */
+function commitResults(media, people, append, failed = false) {
   if (append) {
     state.cache.push(...media);
   } else {
@@ -837,6 +862,9 @@ function commitResults(media, people, append) {
   }
   state.exhausted = media.length === 0;
   state.loading = false;
+  /* Don't strand the user on a half-loaded page: an append that failed keeps
+     whatever is already on screen and just stops paging. */
+  state.fetchFailed = failed && !state.cache.length;
   renderResults({ append });
 }
 
@@ -849,6 +877,9 @@ function setStatus(kind) {
   if (kind === 'loading') {
     els.gridStatus.removeAttribute('data-empty');
     els.gridStatus.innerHTML = '<span class="spinner"></span><span>Loading…</span>';
+  } else if (kind === 'error') {
+    els.gridStatus.setAttribute('data-empty','');
+    els.gridStatus.innerHTML = '<strong>Couldn’t reach TMDB</strong><span>Check your connection and try again — your filters are fine.</span>';
   } else if (kind === 'empty') {
     els.gridStatus.setAttribute('data-empty','');
     const hint = (state.locationOnly && state.userRegion)
@@ -900,7 +931,7 @@ function renderResults({ append = false } = {}) {
 
   if (!append) attachImageLoaders(els.peopleGrid);
 
-  setStatus(state.cache.length === 0 ? 'empty' : '');
+  setStatus(state.fetchFailed ? 'error' : state.cache.length === 0 ? 'empty' : '');
 }
 
 function renderCard(item, idx, showRibbon) {
@@ -1045,8 +1076,7 @@ function runNsfwLookups(queue) {
     if (i >= queue.length) return;
     const [key, item] = queue[i++];
     const mt = getMediaType(item);
-    fetch(`${TMDB}/${mt}/${item.id}/keywords?api_key=${API_KEY}`)
-      .then(r => r.json())
+    tmdbJson(`${TMDB}/${mt}/${item.id}/keywords?api_key=${API_KEY}`)
       .then(d => {
         const list = (mt === 'movie' ? d.keywords : d.results) || [];
         const flagged = list.some(k => NSFW_KEYWORD_IDS.has(k.id));
@@ -1634,8 +1664,7 @@ function showDetail(id, mt) {
 
   // Fetch details + videos + keywords (keywords drives the NSFW badge for
   // titles like Overflow where TMDB's adult flag is false but the tag is set).
-  fetch(`${TMDB}/${mt}/${id}?api_key=${API_KEY}&append_to_response=videos,keywords`)
-    .then(r => r.json())
+  tmdbJson(`${TMDB}/${mt}/${id}?api_key=${API_KEY}&append_to_response=videos,keywords`)
     .then(d => {
       const kwList = (d.keywords && (d.keywords.keywords || d.keywords.results)) || [];
       const keywordNsfw = kwList.some(k => NSFW_KEYWORD_IDS.has(k.id));
@@ -1653,8 +1682,7 @@ function showDetail(id, mt) {
     .catch(() => {});
 
   // Cast
-  fetch(`${TMDB}/${mt}/${id}/credits?api_key=${API_KEY}`)
-    .then(r => r.json())
+  tmdbJson(`${TMDB}/${mt}/${id}/credits?api_key=${API_KEY}`)
     .then(d => {
       if (isStale()) return;
       const cast = d.cast || [];
@@ -1772,8 +1800,7 @@ function fetchProviders(mt, id, title, date, region) {
   };
 
   els.detailProviders.innerHTML = loadingHtml('Loading…');
-  fetch(`${TMDB}/${mt}/${id}/watch/providers?api_key=${API_KEY}`)
-    .then(r => r.json())
+  tmdbJson(`${TMDB}/${mt}/${id}/watch/providers?api_key=${API_KEY}`)
     .then(data => {
       if (isStale()) return;
       const regionData = data.results?.[region];
@@ -1845,9 +1872,9 @@ function showActor(personId) {
   els.actorContent.innerHTML = loadingHtml('Loading…', true);
   showOverlay(els.actorOverlay);
   Promise.all([
-    fetch(`${TMDB}/person/${personId}?api_key=${API_KEY}`).then(r=>r.json()),
-    fetch(`${TMDB}/person/${personId}/movie_credits?api_key=${API_KEY}`).then(r=>r.json()),
-    fetch(`${TMDB}/person/${personId}/tv_credits?api_key=${API_KEY}`).then(r=>r.json()),
+    tmdbJson(`${TMDB}/person/${personId}?api_key=${API_KEY}`),
+    tmdbJson(`${TMDB}/person/${personId}/movie_credits?api_key=${API_KEY}`),
+    tmdbJson(`${TMDB}/person/${personId}/tv_credits?api_key=${API_KEY}`),
   ]).then(([p, mc, tc]) => {
     if (token !== actorToken) return;
     const movies = (mc.cast || []).slice(0, ACTOR_CREDITS_MAX);
@@ -2031,7 +2058,8 @@ function importCollection(file) {
       const parts = [`Imported ${result.total} item${result.total === 1 ? '' : 's'}`];
       if (result.added)   parts.push(`${result.added} new`);
       if (result.updated) parts.push(`${result.updated} updated`);
-      setCollectionStatus(parts.join(', ') + '.');
+      if (result.skipped) parts.push(`${result.skipped} skipped`);
+      setCollectionStatus(parts.join(', ') + '.', result.total ? 'info' : 'error');
     } catch {
       setCollectionStatus('That file is not valid JSON.', 'error');
     }
