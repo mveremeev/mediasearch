@@ -225,7 +225,9 @@ a { color: inherit; text-decoration: none; }
 /* ---------- Hero ---------- */
 .hero {
   position: relative;
-  padding: 36px 24px 16px;
+  /* Top padding was 36px to sit under the hero <h1>; the search bar is the
+     only content now, so top and bottom are balanced. */
+  padding: 22px 24px 20px;
   overflow: hidden;
   isolation: isolate;
 }
@@ -261,7 +263,9 @@ a { color: inherit; text-decoration: none; }
 
 /* ---------- Search bar ---------- */
 .search-bar {
-  margin: 22px auto 0;
+  /* No top margin: the 22px only existed to clear the hero <h1>. The hero's
+     own padding now provides the spacing. */
+  margin: 0 auto;
   max-width: 720px;
   display: flex;
   align-items: center;
@@ -2273,11 +2277,12 @@ input[type="range"]::-moz-range-thumb {
     /* keep visible - was previously display:none */
   }
 
-  .hero { padding: 22px 14px 8px; }
+  .hero { padding: 16px 14px 14px; }
   .hero-title { font-size: clamp(36px, 11vw, 56px); letter-spacing: -0.04em; }
   .hero-title::after { width: 0.14em; height: 0.14em; }
 
-  .search-bar { margin-top: 16px; padding: 5px 5px 5px 14px; }
+  /* margin-top dropped with the hero <h1> — hero padding spaces it instead. */
+  .search-bar { padding: 5px 5px 5px 14px; }
   .search-input { font-size: 14px; padding: 10px 4px; }
   /* Collapse submit button to its arrow icon - saves ~80px of horizontal space */
   .search-submit { padding: 9px 11px; }
@@ -2361,9 +2366,14 @@ input[type="range"]::-moz-range-thumb {
    `section.filters#filters`, `main.results#results-main`, `header.site-header#site-header`
    layout-shift culprits. */
 .site-header { min-height: var(--header-h); }
-.hero { min-height: clamp(220px, 28vh, 280px); }
+/* Was clamp(220px, 28vh, 280px) to reserve room for the hero <h1>. With the
+   title commented out the hero holds only the search bar, so the reservation
+   is a flat height matching it rather than a slice of the viewport. */
+.hero { min-height: 104px; }
 .filters { min-height: 92px; }
-@media (max-width: 760px) { .filters { min-height: 76px; } }
+/* Mobile trims the hero padding and search-bar padding, so the reservation
+   drops with it — 104px would leave a visible gap under the search bar. */
+@media (max-width: 760px) { .hero { min-height: 86px; } .filters { min-height: 76px; } }
 main.results { min-height: 70vh; }
 
 /* Lock #detail-close size and movement: replace the rotate(90deg) hover

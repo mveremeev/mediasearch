@@ -41,7 +41,12 @@
     body { background:#08090c; color:#d4d4d8; }
     :root[data-theme="light"] body { background:#f7f6f3; color:#2a2b30; }
     .site-header { min-height: 68px; }
-    .hero { min-height: 240px; }
+    /* Was 240px, reserving room for the hero <h1> that is commented out below.
+       Sized to the search bar alone now. NOTE: this block is parsed after the
+       styles.css <link>, so these win over the same selectors there — the
+       mobile step has to be repeated here or it never applies. */
+    .hero { min-height: 104px; }
+    @media (max-width: 760px) { .hero { min-height: 86px; } }
     .filters { min-height: 92px; }
     main.results { min-height: 70vh; }
   </style>
