@@ -485,7 +485,10 @@
   </div>
 
 
-  <script src="scripts.js" defer></script>
+  <!-- Entry point for the ES module graph (see js/main.js for the module map).
+       type="module" is deferred by default, so `els` can resolve its DOM refs
+       at evaluation time and the DOMContentLoaded init listener still fires. -->
+  <script type="module" src="js/main.js"></script>
 
   <!-- Vercel Web Analytics (visitors + page views). Served same-origin from
        /_vercel/insights/ once Web Analytics is enabled for the project, so it
