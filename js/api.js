@@ -4,6 +4,7 @@ import {
 } from './config.js';
 import { renderResults, setStatus } from './render.js';
 import { state } from './state.js';
+import { dateOf, yearOf } from './fields.js';
 import { isAnime, isExplicit, tmdbJson } from './util.js';
 
 /* ---------- 6. FETCH DISPATCH ---------- */
@@ -65,16 +66,33 @@ function expandProviders(vals) {
   });
   return Array.from(set).join('|');
 }
-function buildSearchParams() {
+function buildSearchParams(page = state.page) {
   const p = new URLSearchParams();
   p.set('api_key', API_KEY);
-  p.set('page', state.page);
+  p.set('page', page);
   p.set('include_adult', state.adultOnly);
   p.set('query', state.query);
-  // year (max only, per TMDB search)
-  if (state.yearMax < new Date().getFullYear()) p.set('year', state.yearMax);
+  /* No year param. TMDB's search endpoints cannot express a range: `year` is an
+     exact match (search/movie?query=freefall&year=1994 returns only the 1994
+     title, not everything up to it), and /search/multi — what Type:All uses —
+     ignores it outright. The range is applied client-side in applySearchFilters
+     instead. The old code sent `year=yearMax` only when yearMax < the current
+     year, so "2025-Now" sent nothing and yearMin was never sent at all. */
   if (state.locationOnly && state.userRegion) p.set('region', state.userRegion);
   return p.toString();
+}
+
+const currentYear = () => new Date().getFullYear();
+/* A range covering everything is not a filter — skip the work and keep
+   undated titles visible. */
+const yearFilterActive = () => state.yearMin > 0 || state.yearMax < currentYear();
+function inYearRange(item) {
+  const y = Number(yearOf(dateOf(item)));
+  /* yearOf returns '-' for a missing date, so this is NaN. Drop undated titles
+     while a range is active, matching discover: TMDB's date.gte/lte exclude
+     null-dated records server-side too. */
+  if (!Number.isFinite(y)) return false;
+  return y >= state.yearMin && y <= state.yearMax;
 }
 
 let lastFetchAt = 0, pendingTimer = null;
@@ -95,15 +113,50 @@ function runFetch(append) {
   else             runDiscover(append);
 }
 
-function runSearch(append) {
-  const params = buildSearchParams();
-  const t = state.type;
+// For anime type: use multi search then post-filter
+function searchUrl(t, page) {
+  const params = buildSearchParams(page);
+  if (t === 'movie') return `${TMDB}/search/movie?${params}`;
+  if (t === 'tv')    return `${TMDB}/search/tv?${params}`;
+  return `${TMDB}/search/multi?${params}`;
+}
 
-  // For anime type: use multi search then post-filter
-  let mediaUrl;
-  if (t === 'movie')      mediaUrl = `${TMDB}/search/movie?${params}`;
-  else if (t === 'tv')    mediaUrl = `${TMDB}/search/tv?${params}`;
-  else                    mediaUrl = `${TMDB}/search/multi?${params}`;
+/* Everything TMDB's search endpoints can't do for us. */
+function applySearchFilters(results, t) {
+  let arr = results
+    .filter(x => x.media_type !== 'person')
+    .map(m => ({ ...m, media_type: m.media_type || (t === 'tv' ? 'tv' : 'movie') }));
+  if (state.type === 'anime') arr = arr.filter(isAnime);
+  if (!state.adultOnly)       arr = arr.filter(x => !isExplicit(x));
+  if (yearFilterActive())     arr = arr.filter(inYearRange);
+  return arr;
+}
+
+/* How many extra pages to pull when filtering empties one completely. Bounded
+   so a narrow year range on a broad query can't fan out into 500 requests. */
+const SEARCH_SKIM_MAX_PAGES = 4;
+
+/* Filtering client-side means a page can come back full from TMDB and still
+   leave nothing to show. Reporting that as "no results" would be wrong, and
+   infinite scroll can't recover it — the observer bails while the grid is
+   empty. So skim forward until something survives or the budget runs out. */
+async function collectSearchPages(t) {
+  let media = [], page = state.page, more = false;
+  for (let skims = 0; ; skims++) {
+    const d = await tmdbJson(searchUrl(t, page));
+    const totalPages = Math.min(d.total_pages || 1, MAX_PAGE);
+    media = media.concat(applySearchFilters(d.results || [], t));
+    more = page < totalPages;
+    if (media.length || !more || skims >= SEARCH_SKIM_MAX_PAGES) break;
+    page++;
+  }
+  // Resume the next append after the last page actually consumed, not the first.
+  state.page = page;
+  return { media, more };
+}
+
+function runSearch(append) {
+  const t = state.type;
 
   const personPromise = (state.page === 1 && !append)
     ? tmdbJson(`${TMDB}/search/person?api_key=${API_KEY}&query=${encodeURIComponent(state.query)}&page=1`)
@@ -114,17 +167,11 @@ function runSearch(append) {
   /* The media request is the one that decides success. A failed *person* lookup
      just means no people strip, which is not worth surfacing as an error. */
   let failed = false;
-  const mediaPromise = tmdbJson(mediaUrl).then(d => {
-    let arr = (d.results || [])
-      .filter(x => x.media_type !== 'person')
-      .map(m => ({ ...m, media_type: m.media_type || (t === 'tv' ? 'tv' : 'movie') }));
-    if (state.type === 'anime') arr = arr.filter(isAnime);
-    if (!state.adultOnly) arr = arr.filter(x => !isExplicit(x));
-    return arr;
-  }).catch(() => { failed = true; return []; });
+  const mediaPromise = collectSearchPages(t)
+    .catch(() => { failed = true; return { media: [], more: false }; });
 
   Promise.all([personPromise, mediaPromise])
-    .then(([people, media]) => commitResults(media, people, append, failed));
+    .then(([people, res]) => commitResults(res.media, people, append, failed, res.more));
 }
 
 function runDiscover(append) {
@@ -149,15 +196,20 @@ function runDiscover(append) {
 /* Shared tail for both fetch paths: land the results, update the paging flags,
    repaint. `people` is ignored when appending — the strip is first-page only.
    `failed` distinguishes "TMDB is unreachable" from "TMDB returned nothing". */
-function commitResults(media, people, append, failed = false) {
+function commitResults(media, people, append, failed = false, more = null) {
   if (append) {
     state.cache.push(...media);
   } else {
     state.cache = media;
     state.personCache = people;
   }
-  state.exhausted = media.length === 0;
+  /* Search passes `more` from TMDB's total_pages, because client-side filtering
+     can zero out a page that wasn't the last one — keying off media.length there
+     would stop paging early. Discover filters server-side, so it keeps the
+     simple check. */
+  state.exhausted = more === null ? media.length === 0 : !more;
   state.loading = false;
+  state.hasFetched = true;
   /* Don't strand the user on a half-loaded page: an append that failed keeps
      whatever is already on screen and just stops paging. */
   state.fetchFailed = failed && !state.cache.length;
@@ -168,6 +220,7 @@ const sortLocally = (arr) =>
   arr.sort(SORT_COMPARATORS[state.sort] || SORT_COMPARATORS[DEFAULT_SORT]);
 
 export {
-  buildDiscoverParams, expandProviders, buildSearchParams, lastFetchAt, fetchMedia,
+  buildDiscoverParams, expandProviders, buildSearchParams, currentYear, yearFilterActive,
+  inYearRange, searchUrl, applySearchFilters, collectSearchPages, lastFetchAt, fetchMedia,
   runFetch, runSearch, runDiscover, commitResults, sortLocally
 };

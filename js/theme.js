@@ -64,7 +64,9 @@ function toggleLowData() {
 
 function refreshLoadMore() {
   if (!els.loadMoreBtn) return;
-  const shouldShow = !state.autoLoad && !state.exhausted && !state.loading && state.cache.length > 0;
+  /* hasFetched rather than cache.length: an empty grid with pages still left
+     (client-side filtering removed everything on this page) must stay loadable. */
+  const shouldShow = !state.autoLoad && !state.exhausted && !state.loading && state.hasFetched;
   els.loadMoreBtn.hidden = !shouldShow;
   els.loadMoreBtn.disabled = state.loading;
 }

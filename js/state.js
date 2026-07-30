@@ -22,6 +22,7 @@ const state = {
   loading: false,
   exhausted: false,
   fetchFailed: false,    // last fetch failed outright (network/HTTP), vs. legitimately returning nothing
+  hasFetched: false,     // a fetch has completed at least once — gates paging without requiring a non-empty grid
   autoLoad: true,        // when off, show a Load More button instead of infinite scroll
   lowData: false,        // when on, no <img> rendered anywhere; cached LowData.svg shown via CSS, autoLoad forced off
   detailOverrides: {},   // {`${mt}:${id}`: minimal item} - lets showDetail open items not in cache (e.g. from collection)

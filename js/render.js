@@ -20,6 +20,14 @@ function setStatus(kind) {
   } else if (kind === 'error') {
     els.gridStatus.setAttribute('data-empty','');
     els.gridStatus.innerHTML = '<strong>Couldn’t reach TMDB</strong><span>Check your connection and try again — your filters are fine.</span>';
+  } else if (kind === 'searching') {
+    /* Nothing survived the client-side filters on the pages pulled so far, but
+       TMDB still has more. Distinct from 'empty' so we don't tell the user to
+       widen filters that may well match a few pages further in. */
+    els.gridStatus.setAttribute('data-empty','');
+    els.gridStatus.innerHTML = state.autoLoad
+      ? '<strong>Still looking…</strong><span>No matches in the results so far — checking further pages.</span>'
+      : '<strong>No matches yet</strong><span>Nothing in the results so far — use Load more to keep looking.</span>';
   } else if (kind === 'empty') {
     els.gridStatus.setAttribute('data-empty','');
     const hint = (state.locationOnly && state.userRegion)
@@ -71,7 +79,12 @@ function renderResults({ append = false } = {}) {
 
   if (!append) attachImageLoaders(els.peopleGrid);
 
-  setStatus(state.fetchFailed ? 'error' : state.cache.length === 0 ? 'empty' : '');
+  setStatus(
+    state.fetchFailed          ? 'error'
+    : state.cache.length       ? ''
+    : state.exhausted          ? 'empty'
+                               : 'searching'
+  );
 }
 
 function renderCard(item, idx, showRibbon) {
