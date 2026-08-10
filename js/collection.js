@@ -69,10 +69,14 @@ function loadCollection() {
   } catch { /* corrupt or unavailable — fall back to the empty collection */ }
   return collectionCache;
 }
-function saveCollection(col) {
+/* `changedKey` names the single entry a mutation touched, so listeners can
+   re-sync just that card instead of every card on the page. Omit it when the
+   change is wholesale (import, cross-tab sync) and listeners fall back to a
+   full walk. */
+function saveCollection(col, changedKey = null) {
   collectionCache = col;
   try { localStorage.setItem(COLLECTION_KEY, JSON.stringify(col)); } catch {}
-  document.dispatchEvent(new CustomEvent('collection:change'));
+  document.dispatchEvent(new CustomEvent('collection:change', { detail: { key: changedKey } }));
 }
 function getEntry(id, mt) {
   return loadCollection().items[collectionKey(id, mt)] || null;
@@ -118,11 +122,11 @@ function upsertEntry(item, patch) {
   const next = { ...enriched, ...patch, updatedAt: Date.now() };
   // If the entry no longer represents anything, drop it.
   if (!next.favourite && !next.status && !next.rating) {
-    if (existing) { delete col.items[key]; saveCollection(col); }
+    if (existing) { delete col.items[key]; saveCollection(col, key); }
     return null;
   }
   col.items[key] = next;
-  saveCollection(col);
+  saveCollection(col, key);
   return next;
 }
 /* Renamed from setStatus (which already existed for the grid loading state) so

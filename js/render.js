@@ -287,8 +287,22 @@ function handleCollectionActionClick(e) {
 
 /* Refresh data-fav / data-status / .is-active on every visible .card after a
    collection mutation. Cheaper than re-rendering the whole grid. */
-function refreshCardStates(root = document) {
-  qsa('.card', root).forEach(card => {
+/* `key` limits the walk to the one entry that changed (`${mediaType}:${id}`).
+   Without it this touched every card in `root` — on the homepage that is every
+   card ever loaded, thousands of them, each getting three dataset writes plus
+   six aria-pressed writes. Those aria writes dirty the accessibility tree, so
+   a single heart click was also forcing a full a11y recompute and hit-test.
+   Callers omit `key` for wholesale changes (import, cross-tab sync). */
+function refreshCardStates(root = document, key = null) {
+  let cards;
+  if (key) {
+    const sep = key.indexOf(':');
+    const sel = `.card[data-type="${CSS.escape(key.slice(0, sep))}"][data-id="${CSS.escape(key.slice(sep + 1))}"]`;
+    cards = qsa(sel, root);
+  } else {
+    cards = qsa('.card', root);
+  }
+  cards.forEach(card => {
     const entry = getEntry(Number(card.dataset.id), card.dataset.type) || {};
     card.dataset.fav    = entry.favourite ? '1' : '0';
     card.dataset.status = entry.status || '';

@@ -838,10 +838,17 @@ input[type="range"]::-moz-range-thumb {
   display: grid; place-items: center;
   border-radius: 999px;
   color: #fff;
-  background: rgba(8, 9, 12, 0.72);
+  /* Was rgba(8,9,12,0.72) + backdrop-filter: blur(6px). Six of these render per
+     card, and `.card-quick:has(.is-active)` keeps them all visible on any card
+     with collection state — so the collection overlay showed ~170 of them at
+     once, ~72 on screen. Nothing between them and the document root
+     establishes a backdrop root, so each blur sampled the whole page behind the
+     translucent overlay, forcing a full-page display-list rebuild per frame.
+     A/B in Chrome: removing just the blur took scrolling from 17 janked frames
+     (worst 250ms) to 1 (worst 50ms). Bumped the alpha to keep the contrast the
+     blur was providing; behind a near-opaque disc the blur was barely visible. */
+  background: rgba(8, 9, 12, 0.86);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
   pointer-events: auto;
   transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .12s var(--ease);
@@ -1219,6 +1226,12 @@ input[type="range"]::-moz-range-thumb {
   overflow-x: hidden;
   box-shadow: var(--shadow-lg);
   animation: card-pop .35s var(--ease-out) both;
+  /* Scope layout and painting to this subtree. Firefox profiles of scrolling
+     the collection showed the display list being rebuilt from
+     ViewportFrame::BuildDisplayList — i.e. from the page root, re-walking the
+     whole grid behind the overlay every frame. The card is already an opaque,
+     overflow-clipped box, so nothing inside needs to affect anything outside. */
+  contain: layout paint;
 }
 @keyframes card-pop {
   from { opacity: 0; transform: translateY(16px) scale(0.97); }

@@ -107,7 +107,7 @@ function renderCollectionBody() {
    Order is deliberately left alone here. Sorting is by updatedAt, and every
    click bumps that, so re-sorting would make cards jump out from under the
    cursor mid-interaction. The list re-sorts on reopen and on tab switch. */
-function syncCollectionBody() {
+function syncCollectionBody(key = null) {
   const grid = els.collectionBody.querySelector('.grid');
   const present = new Map(collectionItemsForTab().map(e => [entryKey(e), e]));
 
@@ -136,7 +136,7 @@ function syncCollectionBody() {
   }
 
   if (renderedKeys.length === 0) { renderCollectionBody(); return; }
-  refreshCardStates(els.collectionBody);
+  refreshCardStates(els.collectionBody, key);
 }
 
 /* Counts only — avoids rebuilding the tab strip (and losing focus) on every

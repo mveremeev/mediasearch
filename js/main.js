@@ -244,7 +244,10 @@ function init() {
   });
 
   // collection:change → re-sync every surface that shows collection state
-  document.addEventListener('collection:change', () => {
+  document.addEventListener('collection:change', (ev) => {
+    /* `key` is set for single-entry mutations, so the re-sync below can touch
+       one card instead of walking every card on the page. */
+    const key = ev.detail?.key || null;
     const c = getCounts();
     if (c.total > 0) {
       els.collectionCount.hidden = false;
@@ -252,7 +255,7 @@ function init() {
     } else {
       els.collectionCount.hidden = true;
     }
-    refreshCardStates(els.grid);
+    refreshCardStates(els.grid, key);
     if (currentDetail) els.detailCollectionActions.innerHTML = renderCollectionActions(currentDetail.item);
     if (els.collectionOverlay.classList.contains('active')) {
       /* Was renderCollection(), which rebuilt the tab strip and the entire grid
@@ -262,9 +265,9 @@ function init() {
          syncCollectionBody calls refreshCardStates itself, so the collection
          body is deliberately not refreshed above. */
       updateCollectionCounts();
-      syncCollectionBody();
+      syncCollectionBody(key);
     } else {
-      refreshCardStates(els.collectionBody);
+      refreshCardStates(els.collectionBody, key);
     }
   });
 
