@@ -43,7 +43,8 @@ import {
 import {
   ADBLOCK_SKIP_KEY, adblockSkipped, exportCollection, getCollectionTab, importCollection,
   openCollection, openDetailFromCollection, renderCollection, renderCollectionBody,
-  setCollectionTab, showAdblockPrompt, updateCollectionTabActive
+  setCollectionTab, showAdblockPrompt, syncCollectionBody, updateCollectionCounts,
+  updateCollectionTabActive
 } from './collection-ui.js';
 import { copyTextToClipboard, flashCopy } from './copy.js';
 import { currentDetail, renderCollectionActions, showDetail } from './detail.js';
@@ -252,12 +253,18 @@ function init() {
       els.collectionCount.hidden = true;
     }
     refreshCardStates(els.grid);
-    refreshCardStates(els.collectionBody);
     if (currentDetail) els.detailCollectionActions.innerHTML = renderCollectionActions(currentDetail.item);
     if (els.collectionOverlay.classList.contains('active')) {
-      // Re-render counts in the tabs strip; if the active filter would now hide
-      // an item that just changed, the body needs to update too.
-      renderCollection();
+      /* Was renderCollection(), which rebuilt the tab strip and the entire grid
+         from scratch on every click — ~800 elements destroyed and recreated,
+         every card-in animation restarted, every backdrop-filter layer rebuilt.
+         Both of these update in place and touch only what changed.
+         syncCollectionBody calls refreshCardStates itself, so the collection
+         body is deliberately not refreshed above. */
+      updateCollectionCounts();
+      syncCollectionBody();
+    } else {
+      refreshCardStates(els.collectionBody);
     }
   });
 

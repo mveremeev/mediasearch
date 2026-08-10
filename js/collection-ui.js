@@ -4,8 +4,8 @@ import {
 } from './collection.js';
 import { showDetail } from './detail.js';
 import { showOverlay } from './overlays.js';
-import { attachImageLoaders, renderCard } from './render.js';
-import { els, qsa, state } from './state.js';
+import { attachImageLoaders, refreshCardStates, renderCard } from './render.js';
+import { els, qs, qsa, state } from './state.js';
 
 /* ---------- 13b. COLLECTION OVERLAY + IMPORT/EXPORT ---------- */
 let collectionTab = 'all';
@@ -60,24 +60,96 @@ function updateCollectionTabActive() {
     t.setAttribute('aria-selected', active ? 'true' : 'false');
   });
 }
-function renderCollectionBody() {
+/* Entries matching the active tab. Tab keys other than 'all' are
+   collection-action keys, so one predicate covers them. */
+function collectionItemsForTab() {
   const items = Object.values(loadCollection().items);
-  // Tab keys other than 'all' are collection-action keys, so one predicate covers them.
-  const filtered = (collectionTab === 'all' ? items.slice() : items.filter(e => isActionActive(e, collectionTab)))
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  return collectionTab === 'all' ? items.slice() : items.filter(e => isActionActive(e, collectionTab));
+}
+const entryKey = (e) => collectionKey(e.id, e.mediaType);
+
+/* Keys currently in the DOM, in DOM order. syncCollectionBody diffs against
+   this so a mutation only touches the cards that actually changed. */
+let renderedKeys = [];
+
+function collectionEmptyHtml() {
+  const total = Object.keys(loadCollection().items).length;
+  return total === 0
+    ? `<strong>Your collection is empty.</strong><span>Open a movie or show, then tap a heart, bookmark, play or check icon to start collecting.</span>`
+    : `<strong>Nothing here yet.</strong><span>Try a different tab - or add something from a movie or show card.</span>`;
+}
+
+/* Full rebuild. Only for opening the overlay and switching tabs, where the
+   whole list legitimately changes. */
+function renderCollectionBody() {
+  const filtered = collectionItemsForTab().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
   if (filtered.length === 0) {
-    const msg = items.length === 0
-      ? `<strong>Your collection is empty.</strong><span>Open a movie or show, then tap a heart, bookmark, play or check icon to start collecting.</span>`
-      : `<strong>Nothing here yet.</strong><span>Try a different tab - or add something from a movie or show card.</span>`;
-    els.collectionBody.innerHTML = `<div class="collection-empty">${msg}</div>`;
+    renderedKeys = [];
+    els.collectionBody.innerHTML = `<div class="collection-empty">${collectionEmptyHtml()}</div>`;
     return;
   }
 
+  renderedKeys = filtered.map(entryKey);
   const html = filtered.map((e, i) => renderCard(itemFromEntry(e), i, false)).join('');
   els.collectionBody.innerHTML = `<div class="grid">${html}</div>`;
   attachImageLoaders(els.collectionBody);
 }
+
+/* Incremental update for `collection:change` while the overlay is open.
+   renderCollectionBody() used to run here, replacing the entire grid's
+   innerHTML on every click: one heart tap destroyed and recreated all ~800
+   elements, restarted every card's `card-in` animation, and rebuilt all six
+   backdrop-filter layers per card. Only the cards entering or leaving the
+   current tab are touched now; the rest are updated in place by
+   refreshCardStates.
+
+   Order is deliberately left alone here. Sorting is by updatedAt, and every
+   click bumps that, so re-sorting would make cards jump out from under the
+   cursor mid-interaction. The list re-sorts on reopen and on tab switch. */
+function syncCollectionBody() {
+  const grid = els.collectionBody.querySelector('.grid');
+  const present = new Map(collectionItemsForTab().map(e => [entryKey(e), e]));
+
+  // No grid yet (empty state showing) or nothing left — fall back to a full render.
+  if (!grid || present.size === 0) { renderCollectionBody(); return; }
+
+  const rendered = new Set(renderedKeys);
+
+  // Drop cards that no longer match the active tab.
+  const gone = renderedKeys.filter(k => !present.has(k));
+  gone.forEach(k => {
+    // collectionKey is `${mediaType}:${id}` — cards carry those as separate attrs.
+    const sep = k.indexOf(':');
+    const card = qs(`.card[data-type="${CSS.escape(k.slice(0, sep))}"][data-id="${CSS.escape(k.slice(sep + 1))}"]`, grid);
+    if (card) card.remove();
+  });
+  if (gone.length) renderedKeys = renderedKeys.filter(k => present.has(k));
+
+  // Add cards that newly match. They were just actioned, so they lead.
+  const added = [...present.keys()].filter(k => !rendered.has(k));
+  if (added.length) {
+    const html = added.map((k, i) => renderCard(itemFromEntry(present.get(k)), i, false)).join('');
+    grid.insertAdjacentHTML('afterbegin', html);
+    renderedKeys = [...added, ...renderedKeys];
+    attachImageLoaders(Array.from(grid.children).slice(0, added.length));
+  }
+
+  if (renderedKeys.length === 0) { renderCollectionBody(); return; }
+  refreshCardStates(els.collectionBody);
+}
+
+/* Counts only — avoids rebuilding the tab strip (and losing focus) on every
+   mutation. renderCollectionTabs stays for the initial build. */
+function updateCollectionCounts() {
+  const counts = getCounts();
+  qsa('.coll-tab', els.collectionTabs).forEach(tab => {
+    const k = tab.dataset.tab;
+    const el = qs('.coll-tab-count', tab);
+    if (el) el.textContent = String(k === 'all' ? counts.total : counts[k] || 0);
+  });
+}
+
 function renderCollection() {
   renderCollectionTabs();
   renderCollectionBody();
@@ -155,7 +227,8 @@ function showAdblockPrompt(url) {
 export {
   collectionTab, setCollectionTab, getCollectionTab, TAB_LABEL_OVERRIDES,
   COLLECTION_TABS, openCollection, openDetailFromCollection, renderCollectionTabs,
-  updateCollectionTabActive, renderCollectionBody, renderCollection, setCollectionStatus,
+  updateCollectionTabActive, renderCollectionBody, syncCollectionBody, updateCollectionCounts,
+  collectionItemsForTab, renderCollection, setCollectionStatus,
   exportCollection, importCollection, ADBLOCK_SKIP_KEY, adblockSkipped,
   showAdblockPrompt
 };

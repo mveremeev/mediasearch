@@ -1,0 +1,14 @@
+# Stash — https://www.mediasearch.live
+#
+# Everything user-facing is crawlable.
+#
+# /prev/ (an older copy of the whole site) and /dev/ are kept OUT of the index
+# with an `X-Robots-Tag: noindex` header set in vercel.json, deliberately not
+# with a Disallow here. A Disallow stops crawlers fetching those URLs at all,
+# which means they never see the noindex — anything already indexed would stay
+# in results indefinitely. Allow the crawl, serve the noindex, let them drop.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://www.mediasearch.live/sitemap.xml

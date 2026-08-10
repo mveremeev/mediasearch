@@ -3,8 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Stash</title>
-  <meta name="description" content="A fast, easy to use, TMDB-backed discovery tool. Find what's worth your time.">
+  <title>Stash — find what's worth your time</title>
+  <meta name="description" content="A fast, easy to use, TMDB-backed discovery tool. Search films and shows, filter by service, year, language and rating, and keep a personal watchlist.">
+
+  <!-- The apex 307s to www, so www is the one canonical form. Without this the
+       two hostnames can be indexed as separate pages competing with each other. -->
+  <link rel="canonical" href="https://www.mediasearch.live/">
+
+  <!-- Social/link previews. Several crawlers also fall back to og:description
+       when they can't render the page's JS, so this doubles as a description
+       for anything that only reads static HTML. -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Stash">
+  <meta property="og:url" content="https://www.mediasearch.live/">
+  <meta property="og:title" content="Stash — find what's worth your time">
+  <meta property="og:description" content="A fast, easy to use, TMDB-backed discovery tool. Search films and shows, filter by service, year, language and rating, and keep a personal watchlist.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Stash — find what's worth your time">
+  <meta name="twitter:description" content="A fast, easy to use, TMDB-backed discovery tool. Search films and shows, filter by service, year, language and rating, and keep a personal watchlist.">
 
   <!-- Origins we hit on the critical path. preconnect = DNS + TCP + TLS
        handshake done early so the first byte arrives sooner. Both font
