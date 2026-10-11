@@ -249,11 +249,11 @@ function renderDetailActions(item, trailer) {
   const mt = getMediaType(item);
   if (trailer && trailer.key) parts.push(`<a class="btn btn-red" target="_blank" rel="noopener" href="https://www.youtube.com/watch?v=${trailer.key}">▶ Watch trailer</a>`);
   if (item.id) {
-    /* zstream browses by title slug, not by TMDB id, and its /browse path is
+    /* cinecat browses by title slug, not by TMDB id, and its /browse path is
        the same for films and shows — so unlike the old embed URLs there's no
        movie/tv branch here, only the button label differs. */
     const slug = slugify(item.title || item.name || '');
-    const watchUrl = `https://zstream.mov/browse/${slug}`;
+    const watchUrl = `https://beta.cinecat.eu/browse/${slug}`;
     const watchLabel = mt === 'movie' ? 'Watch movie' : 'Watch show';
     const animeMode = isAnime(item);
     const genreIds = item.genre_ids || (item.genres || []).map(g => g.id);
