@@ -17,6 +17,7 @@
      people         - actor filmography + full cast grid
      info-overlay   - regions + VPN list
      collection-ui  - collection overlay, tabs, import/export UI, adblock prompt
+     share          - share links (#list=…), shared-list view, save as mine, CSV download
      copy           - copy id / slug buttons
      scroll         - IntersectionObserver for infinite scroll
      overlays       - shared show/hide/close/wire helpers
@@ -41,9 +42,9 @@ import {
   invalidateCollectionCache
 } from './collection.js';
 import {
-  ADBLOCK_SKIP_KEY, adblockSkipped, exportCollection, getCollectionTab, importCollection,
-  openCollection, openDetailFromCollection, renderCollection, renderCollectionBody,
-  setCollectionTab, showAdblockPrompt, syncCollectionBody, updateCollectionCounts,
+  ADBLOCK_SKIP_KEY, COLLECTION_TABS, adblockSkipped, collectionItemsForTab, exportCollection,
+  getCollectionTab, importCollection, openCollection, openDetailFromCollection, renderCollection,
+  renderCollectionBody, setCollectionStatus, setCollectionTab, showAdblockPrompt, syncCollectionBody, updateCollectionCounts,
   updateCollectionTabActive
 } from './collection-ui.js';
 import { copyTextToClipboard, flashCopy } from './copy.js';
@@ -55,6 +56,10 @@ import {
 } from './filters.js';
 import { fetchCountry } from './geo.js';
 import { closeTopOverlay, hideOverlay, wireOverlay } from './overlays.js';
+import {
+  clearShareHash, downloadCsv, downloadShared, openSharedFromHash, saveShared,
+  shareCollectionTab
+} from './share.js';
 import { showActor, showCastGrid } from './people.js';
 import { loadPrefs } from './prefs.js';
 import { handleCollectionActionClick, refreshCardStates } from './render.js';
@@ -142,6 +147,8 @@ function init() {
 
   wireActivation(els.grid, '.card', openCard(showDetail), handleCollectionActionClick);
   wireActivation(els.collectionBody, '.card', openCard(openDetailFromCollection), handleCollectionActionClick);
+  // Shared-list cards: renderShared seeds detailOverrides, so plain showDetail works.
+  wireActivation(els.sharedBody, '.card', openCard(showDetail), handleCollectionActionClick);
   wireActivation(els.peopleGrid, '.person-card', openPerson);
   wireActivation(els.detailCast, '.person-card', openPerson);
   wireActivation(els.castGridContent, '.person-card', (p) => {
@@ -174,6 +181,7 @@ function init() {
   wireOverlay(els.infoOverlay,       els.infoClose);
   wireOverlay(els.adblockOverlay,    els.adblockClose);
   wireOverlay(els.collectionOverlay, els.collectionClose);
+  wireOverlay(els.sharedOverlay,     els.sharedClose);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTopOverlay(); });
 
   // Watch buttons: anime variant routes to miruro's search by slugified title;
@@ -229,6 +237,28 @@ function init() {
     importCollection(file);
     e.target.value = ''; // allow re-importing the same file
   });
+  /* Share and Download act on the tab being viewed, in the order it is shown. */
+  const visibleEntries = () => collectionItemsForTab().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const visibleTabLabel = () => getCollectionTab() === 'all' ? 'Collection'
+    : (COLLECTION_TABS.find(t => t.key === getCollectionTab()) || {}).label || 'My list';
+  els.collectionShare.addEventListener('click', () => shareCollectionTab(getCollectionTab(), visibleEntries()));
+  els.collectionDownload.addEventListener('click', () => {
+    const entries = visibleEntries();
+    if (!entries.length) { setCollectionStatus('Nothing to download in this list yet.', 'error'); return; }
+    downloadCsv(visibleTabLabel(), entries);
+  });
+
+  // Shared list (opened from someone else's #list=… link)
+  els.sharedSave.addEventListener('click', saveShared);
+  els.sharedDownload.addEventListener('click', downloadShared);
+  /* The overlay can close via button, backdrop or Escape; watching its class
+     catches all three without touching the shared overlay helpers. */
+  new MutationObserver(() => {
+    if (!els.sharedOverlay.classList.contains('active')) clearShareHash();
+  }).observe(els.sharedOverlay, { attributes: true, attributeFilter: ['class'] });
+  window.addEventListener('hashchange', openSharedFromHash);
+  openSharedFromHash();
+
   els.collectionTabs.addEventListener('click', (e) => {
     const tab = e.target.closest('[data-tab]');
     if (!tab) return;
@@ -256,6 +286,7 @@ function init() {
       els.collectionCount.hidden = true;
     }
     refreshCardStates(els.grid, key);
+    if (els.sharedOverlay.classList.contains('active')) refreshCardStates(els.sharedBody, key);
     if (currentDetail) els.detailCollectionActions.innerHTML = renderCollectionActions(currentDetail.item);
     if (els.collectionOverlay.classList.contains('active')) {
       /* Was renderCollection(), which rebuilt the tab strip and the entire grid

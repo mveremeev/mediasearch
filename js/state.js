@@ -113,6 +113,17 @@ const els = {
   collectionImport: $('collection-import'),
   collectionExport: $('collection-export'),
   collectionImportInput: $('collection-import-input'),
+  collectionShare:  $('collection-share'),
+  collectionDownload: $('collection-download'),
+  sharedOverlay:    $('shared-overlay'),
+  sharedClose:      $('shared-close'),
+  sharedTitle:      $('shared-title'),
+  sharedMeta:       $('shared-meta'),
+  sharedTarget:     $('shared-target'),
+  sharedSave:       $('shared-save'),
+  sharedDownload:   $('shared-download'),
+  sharedStatus:     $('shared-status'),
+  sharedBody:       $('shared-body'),
 };
 
 export {

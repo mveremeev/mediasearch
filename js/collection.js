@@ -210,9 +210,44 @@ function mergeImport(incoming) {
   return { ok:true, added, updated, skipped, total: Object.keys(incoming.items).length - skipped };
 }
 
+/* Save a batch of entries (e.g. someone else's shared list) into one of the
+   viewer's own lists. Never overwrites: an entry that already has a value in
+   the target's field, or that is already rated/favourited when the target is
+   one of those, is skipped. One saveCollection for the whole batch. */
+function saveEntriesTo(entries, key) {
+  const field = ACTION_FIELD[key];
+  if (!field) return { added: 0, skipped: entries.length };
+  const col = loadCollection();
+  let added = 0, skipped = 0;
+  const now = Date.now();
+  entries.forEach((e, i) => {
+    const k = collectionKey(e.id, e.mediaType);
+    if (UNSAFE_KEYS.has(k)) { skipped++; return; }
+    const existing = Object.prototype.hasOwnProperty.call(col.items, k) ? col.items[k] : null;
+    // favourite and rating are mutually exclusive, so either blocks both.
+    const taken = existing && (field === 'status'
+      ? !!existing.status
+      : !!(existing.favourite || existing.rating));
+    if (taken) { skipped++; return; }
+    const base = existing || {
+      id: e.id, mediaType: e.mediaType, title: e.title || '', posterPath: e.posterPath || '',
+      year: e.year || '', favourite: false, status: null, rating: null, addedAt: now,
+    };
+    const patch = field === 'favourite' ? { favourite: true }
+                : field === 'rating'    ? { rating: key }
+                :                         { status: key };
+    // Stagger updatedAt so the list keeps the shared order when sorted newest-first.
+    col.items[k] = { ...base, ...patch, updatedAt: now - i };
+    added++;
+  });
+  if (added) saveCollection(col);
+  return { added, skipped };
+}
+
 export {
   COLLECTION_KEY, COLLECTION_VER, collectionKey, COLLECTION_ACTIONS, ACTION_FIELD,
   isActionActive, applyCollectionAction, collectionCache, invalidateCollectionCache,
   loadCollection, saveCollection, getEntry, entryFromItem, itemFromEntry, upsertEntry,
-  setEntryStatus, setRating, toggleFavourite, getCounts, UNSAFE_KEYS, mergeImport
+  setEntryStatus, setRating, toggleFavourite, getCounts, UNSAFE_KEYS, mergeImport,
+  saveEntriesTo
 };

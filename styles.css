@@ -1209,6 +1209,7 @@ input[type="range"]::-moz-range-thumb {
 @keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
 
 #collection-overlay { --overlay-z: 100; }
+#shared-overlay     { --overlay-z: 100; }
 #detail-overlay     { --overlay-z: 110; }
 #actor-overlay,
 #cast-grid-overlay  { --overlay-z: 120; }
@@ -2247,6 +2248,41 @@ input[type="range"]::-moz-range-thumb {
   border-color: color-mix(in oklab, #b91c1c 50%, transparent);
 }
 
+.io-btn:disabled { opacity: .5; pointer-events: none; }
+.io-btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.io-btn-primary:hover { background: var(--primary-hi); border-color: var(--primary-hi); color: #fff; }
+
+/* Shared playlist overlay: reuses the collection card, adds a save row. */
+.shared-heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.shared-heading .collection-title { overflow-wrap: anywhere; }
+.shared-meta { margin: 0; font-size: 12.5px; color: var(--text-mid); }
+.shared-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.shared-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-mid);
+}
+.shared-target select {
+  padding: 7px 12px;
+  font: inherit;
+  color: var(--text-hi);
+  background: var(--surface);
+  border: 1px solid var(--border-hi);
+  border-radius: 999px;
+}
+.shared-target select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
 .collection-body .grid {
   /* Slightly smaller cards in the collection so more fits on screen. */
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -2271,8 +2307,12 @@ input[type="range"]::-moz-range-thumb {
 @media (max-width: 760px) {
   .collection-card { padding: 28px 18px 22px; }
   .collection-head { padding-right: 40px; flex-wrap: wrap; }
-  .collection-io { width: 100%; }
+  .collection-io { width: 100%; flex-wrap: wrap; }
+  .shared-target { flex: 1 1 100%; }
+  .shared-target select { flex: 1; }
+  .shared-actions .io-btn { flex: 1 1 0; justify-content: center; }
   .io-btn { flex: 1 1 0; justify-content: center; }
+  .collection-io .io-btn { flex: 1 1 40%; }
   .collection-body .grid { grid-template-columns: repeat(2, 1fr); gap: 18px 10px; }
 }
 
